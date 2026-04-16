@@ -111,6 +111,22 @@ store_exists <- function(store, key) .Call(wrap__store_exists, store, key)
 #' @export
 store_list <- function(store, prefix) .Call(wrap__store_list, store, prefix)
 
+#' List object keys under many prefixes concurrently.
+#'
+#' Fires up to `concurrency` independent `list()` calls in parallel — one
+#' per prefix — and flattens the results into a single character vector.
+#' Useful for hierarchical layouts where you know the top-level directory
+#' names a priori (years, MGRS tiles, etc.) and want to parallelise
+#' across them instead of walking a single giant paginated listing.
+#'
+#' @param store A `Store` object.
+#' @param prefixes Character vector of prefixes.
+#' @param concurrency Maximum number of concurrent list calls.
+#' @return A character vector of all keys across all prefixes, in no
+#'   guaranteed order.
+#' @export
+store_list_many <- function(store, prefixes, concurrency) .Call(wrap__store_list_many, store, prefixes, concurrency)
+
 #' Copy an object from `from` to `to` within the same store.
 #'
 #' @param store A `Store` object.

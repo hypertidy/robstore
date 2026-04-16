@@ -450,6 +450,62 @@ fn store_get_ranges_many(
     Ok(List::from_values(robjs))
 }
 
+/// List object keys under many prefixes concurrently.
+///
+/// Fires up to `concurrency` independent `list()` calls in parallel — one
+/// per prefix — and flattens the results into a single character vector.
+/// Useful for hierarchical layouts where you know the top-level directory
+/// names a priori (years, MGRS tiles, etc.) and want to parallelise
+/// across them instead of walking a single giant paginated listing.
+///
+/// @param store A `Store` object.
+/// @param prefixes Character vector of prefixes.
+/// @param concurrency Maximum number of concurrent list calls.
+/// @return A character vector of all keys across all prefixes, in no
+///   guaranteed order.
+/// @export
+#[extendr]
+fn store_list_many(
+    store: &Store,
+    prefixes: Vec<String>,
+    concurrency: i32,
+) -> Result<Vec<String>> {
+    if concurrency < 1 {
+        return Err(Error::Other("concurrency must be >= 1".into()));
+    }
+    let conc = concurrency as usize;
+    let inner = store.inner.clone();
+
+    // Validate all prefixes up front
+    let paths: Vec<ObjectPath> = prefixes
+        .iter()
+        .map(|p| to_path(p))
+        .collect::<Result<Vec<_>>>()?;
+
+    let all_keys: Vec<String> = RT
+        .block_on(async {
+            stream::iter(paths)
+                .map(|path| {
+                    let inner = inner.clone();
+                    async move {
+                        let keys: Vec<String> = inner
+                            .list(Some(&path))
+                            .map_ok(|meta| meta.location.to_string())
+                            .try_collect::<Vec<String>>()
+                            .await?;
+                        Ok::<Vec<String>, object_store::Error>(keys)
+                    }
+                })
+                .buffer_unordered(conc)
+                .try_collect::<Vec<Vec<String>>>()
+                .await
+                .map(|vs| vs.into_iter().flatten().collect())
+        })
+        .map_err(os_err)?;
+
+    Ok(all_keys)
+}
+
 // ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
@@ -467,6 +523,7 @@ extendr_module! {
     fn store_delete;
     fn store_exists;
     fn store_list;
+    fn store_list_many;
     fn store_copy;
     fn store_get_many;
     fn store_get_ranges_many;

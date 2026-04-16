@@ -17,6 +17,10 @@ The same small API (`store_put`, `store_get`, `store_get_range`,
 every backend — switching between in-memory, local disk, AWS S3, and
 S3-compatible endpoints like Pawsey is just a change of constructor.
 
+For cloud workloads, `store_get_many()` and `store_get_ranges_many()`
+fan requests out concurrently through a shared tokio runtime, delivering
+10–30× speedups over sequential per-request calls.
+
 ## Installation
 
 You will need a working Rust toolchain (see
@@ -35,6 +39,7 @@ remotes::install_github("mdsumner/robstore")
 | `local_store(path)` | local filesystem rooted at `path` |
 | `s3_store(...)` | AWS S3 or S3-compatible with credentials |
 | `s3_store_anonymous(...)` | public S3 buckets (no signing, e.g. `sentinel-cogs`) |
+| `store_list_many(store, prefixes, concurrency)` | concurrent listings across many prefixes |
 
 More backends (GCS, Azure, generic HTTP) are planned.
 
@@ -110,15 +115,6 @@ head(keys, 3)
 #> [3] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/B02.tif"
 ```
 
-Byte-range reads work the same as any other store — useful for reading
-COG headers without downloading the whole file:
-
-``` r
-hdr <- store_get_range(s, keys[1], offset = 0, length = 65536)
-length(hdr)
-#> [1] 65536
-```
-
 ### S3-compatible with credentials — Pawsey
 
 Credentials are picked up from the standard `AWS_ACCESS_KEY_ID` /
@@ -128,12 +124,12 @@ points `object_store` at any S3-compatible service:
 ``` r
 Sys.setenv(
   AWS_ACCESS_KEY_ID     = <key-id>,
-  AWS_SECRET_ACCESS_KEY = <secret>)
+  AWS_SECRET_ACCESS_KEY =<secret>
 )
 
 s <- s3_store(
   bucket    = "estinel",
-  region    = "",     
+  region    = "",                                  # unused when endpoint is set
   endpoint  = "https://projects.pawsey.org.au",
   allow_http = FALSE
 )
@@ -145,35 +141,157 @@ store_list(s, prefix = "sentinel-2-c1-l2a/2015")
 #> ...
 ```
 
+### Parallel listing across prefixes
+
+S3’s `ListObjectsV2` is paginated (1000 keys per page) and each page
+depends on the previous one’s continuation token, so a single large
+listing is serial by protocol. For hierarchical layouts — years, MGRS
+tiles, product types — you can fan out across sub-prefixes with
+`store_list_many()` and turn one long serial listing into many short
+parallel ones.
+
+``` r
+s <- s3_store(
+  bucket    = "estinel",
+  region    = "",
+  endpoint  = "https://projects.pawsey.org.au",
+  allow_http = FALSE
+)
+
+# serial — one paginated listing through the whole bucket
+system.time({
+  all_serial <- store_list(s, prefix = "sentinel-2-c1-l2a/")
+})
+#>    user  system elapsed
+#>   2.441   0.657  43.132
+length(all_serial)
+#> [1] 552860
+
+# parallel — one list call per year, fanned out
+year_prefixes <- sprintf("sentinel-2-c1-l2a/%d/", 2015:2026)
+system.time({
+  all_parallel <- store_list_many(s, year_prefixes, concurrency = 12)
+})
+#>    user  system elapsed
+#>   2.821   0.651   8.469
+length(all_parallel)
+#> [1] 552860
+```
+
+A 5× speedup over the serial listing, with the same 552,860 keys
+returned (`store_list_many()` does not preserve input order — sort the
+result if order matters).
+
+## Concurrent byte-range reads
+
+`store_get_range()` is fast — reqwest over rustls with connection
+pooling — but calling it in an R loop is still one request at a time.
+`store_get_ranges_many()` issues up to `concurrency` range-GET requests
+simultaneously through a shared tokio runtime, returning a list of raw
+vectors in input order. This is the primitive for COG IFD walks, Zarr
+chunk scatter-reads, and Parquet row-group reads.
+
+``` r
+s <- s3_store_anonymous("sentinel-cogs", "us-west-2", NULL, FALSE)
+keys <- store_list(s, prefix = "sentinel-s2-l2a-cogs/1/C/CV/2024/1/")
+length(keys)
+#> [1] 63
+
+# sequential — one GET at a time
+system.time({
+  heads_seq <- lapply(keys, \(k) store_get_range(s, k, 0, 65536))
+})
+#>    user  system elapsed
+#>   0.026   0.065  19.333
+
+# concurrent fan-out — 16 inflight
+system.time({
+  heads <- store_get_ranges_many(
+    s,
+    keys    = keys,
+    offsets = rep(0, length(keys)),
+    lengths = rep(65536, length(keys)),
+    concurrency = 16
+  )
+})
+#>    user  system elapsed
+#>   0.036   0.044   1.625
+
+# pushing concurrency higher
+system.time({
+  heads_32 <- store_get_ranges_many(
+    s, keys,
+    rep(0, length(keys)), rep(65536, length(keys)),
+    concurrency = 32
+  )
+})
+#>    user  system elapsed
+#>   0.033   0.052   0.767
+```
+
+Note the `user`/`system` columns: essentially zero CPU work in R while
+Rust drives the reactor.
+
+### `store_head_bytes()` — convenience wrapper
+
+For the common pattern of reading the first N bytes of many files (COG
+headers, Parquet footers, Zarr .zarray files), `store_head_bytes()`
+wraps `store_get_ranges_many()` with fixed offset and length:
+
+``` r
+hdrs <- store_head_bytes(s, keys, length = 65536, concurrency = 32)
+length(hdrs)
+#> [1] 63
+
+# pass directly to your COG parser / IFD scanner of choice
+```
+
+### Scaling
+
+At the time of writing, `store_list()` can return half a million keys
+from a single prefix call (tested against `sentinel-s2-l2a-cogs/1/C/`
+which returned 543,889 keys). For concurrent byte-range reads at that
+scale, batch the keys in R rather than holding all the returned raw
+vectors in memory at once:
+
+``` r
+keys_huge <- store_list(s, prefix = "sentinel-s2-l2a-cogs/1/C/")
+length(keys_huge)
+#> [1] 543889
+
+# process in chunks of 1000
+batches <- split(keys_huge, ceiling(seq_along(keys_huge) / 1000))
+for (batch in batches) {
+  hdrs <- store_head_bytes(s, batch, length = 16384, concurrency = 64)
+  # ... extract IFD offsets, write references, etc.
+}
+```
+
 ## API
 
 All operations take a `Store` object as their first argument.
 
-| Function                                      | Description                |
-|-----------------------------------------------|----------------------------|
-| `store_put(store, key, data)`                 | write a raw vector         |
-| `store_get(store, key)`                       | read an object as raw      |
-| `store_get_range(store, key, offset, length)` | read a byte range          |
-| `store_exists(store, key)`                    | `TRUE`/`FALSE`             |
-| `store_list(store, prefix)`                   | character vector of keys   |
-| `store_copy(store, from, to)`                 | copy within the same store |
-| `store_delete(store, key)`                    | remove an object           |
+| Function | Description |
+|----|----|
+| `store_put(store, key, data)` | write a raw vector |
+| `store_get(store, key)` | read an object as raw |
+| `store_get_range(store, key, offset, length)` | read a byte range |
+| `store_exists(store, key)` | `TRUE`/`FALSE` |
+| `store_list(store, prefix)` | character vector of keys |
+| `store_copy(store, from, to)` | copy within the same store |
+| `store_delete(store, key)` | remove an object |
+| `store_get_many(store, keys, concurrency)` | concurrent full-object reads |
+| `store_get_ranges_many(store, keys, offsets, lengths, concurrency)` | concurrent byte-range reads |
+| `store_head_bytes(store, keys, length, offset, concurrency)` | convenience wrapper for fixed-range reads |
 
 Keys are strings; paths like `"a/b/c.txt"` are handled the same way
 across every backend.
 
-## Listing large buckets
-
-`store_list()` returns *all* keys matching the prefix. Public buckets
-like `sentinel-cogs` contain millions of objects, so always pass a
-sufficiently narrow `prefix` — or be prepared to wait and consume
-memory. The prefix is evaluated server-side for cloud backends, so a
-narrow prefix is cheap.
-
 ## Development notes
 
-Phase 1 (local/in-memory) and Phase 2 (S3 + S3-compatible) are working
-and tested against `sentinel-cogs` (AWS) and Pawsey. Planned:
+Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3
+(concurrent fan-out) are working and tested against `sentinel-cogs`
+(AWS) and Pawsey. Planned:
 
 - GCS, Azure, generic HTTP backends
 - vendored Rust dependencies (`rextendr::vendor_pkgs()`) for CRAN /
