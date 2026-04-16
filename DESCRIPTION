@@ -1,0 +1,17 @@
+Package: robstore
+Title: Object Storage via the Rust object_store Crate
+Version: 0.0.0.9000
+Authors@R:
+    person("Michael", "Sumner", , "mdsumner@gmail.com", role = c("aut", "cre"))
+Description: R bindings to the Rust object_store crate, providing a uniform
+    interface to local filesystems and (later) cloud object stores including
+    S3, GCS, and Azure. Phase 1 supports local filesystem and in-memory stores
+    only; cloud backends and async I/O are planned.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+SystemRequirements: Cargo (Rust's package manager), rustc
+Config/rextendr/version: 0.4.2
+URL: https://github.com/mdsumner/robstore
+BugReports: https://github.com/mdsumner/robstore/issues

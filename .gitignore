@@ -1,0 +1,9 @@
+src/rust/vendor
+src/Makevars
+src/Makevars.win
+.Rproj.user
+.Rhistory
+.Rdata
+.httr-oauth
+.DS_Store
+.quarto
