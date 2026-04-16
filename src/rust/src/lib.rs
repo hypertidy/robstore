@@ -8,7 +8,7 @@
 // for every store type.
 
 use extendr_api::prelude::*;
-use futures::stream::TryStreamExt;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
@@ -308,6 +308,149 @@ fn store_copy(store: &Store, from: &str, to: &str) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Concurrent fan-out operations
+// ---------------------------------------------------------------------------
+
+/// Read many objects concurrently.
+///
+/// Issues up to `concurrency` GET requests at once via the shared tokio
+/// runtime. Returns a list of raw vectors, one per input key, in input order.
+/// Any failure aborts the whole operation and returns an error.
+///
+/// @param store A `Store` object.
+/// @param keys Character vector of object keys.
+/// @param concurrency Maximum number of concurrent requests.
+/// @return A list of raw vectors, length `length(keys)`.
+/// @export
+#[extendr]
+fn store_get_many(
+    store: &Store,
+    keys: Vec<String>,
+    concurrency: i32,
+) -> Result<List> {
+    if concurrency < 1 {
+        return Err(Error::Other("concurrency must be >= 1".into()));
+    }
+    let conc = concurrency as usize;
+    let inner = store.inner.clone();
+
+    // Pre-validate paths so we fail fast without issuing any requests.
+    let paths: Vec<ObjectPath> = keys
+        .iter()
+        .map(|k| to_path(k))
+        .collect::<Result<Vec<_>>>()?;
+
+    // Do all the async I/O first, collecting raw Bytes (no R allocations).
+    let bytes_vec: Vec<bytes::Bytes> = RT
+        .block_on(async {
+            stream::iter(paths.into_iter().enumerate())
+                .map(|(i, path)| {
+                    let inner = inner.clone();
+                    async move {
+                        let got = inner.get(&path).await?;
+                        let b = got.bytes().await?;
+                        Ok::<(usize, bytes::Bytes), object_store::Error>((i, b))
+                    }
+                })
+                .buffer_unordered(conc)
+                .try_collect::<Vec<(usize, bytes::Bytes)>>()
+                .await
+                .map(|mut v| {
+                    v.sort_by_key(|(i, _)| *i);
+                    v.into_iter().map(|(_, b)| b).collect::<Vec<_>>()
+                })
+        })
+        .map_err(os_err)?;
+
+    // Now convert to R. Build Vec<Robj> first so each allocation is wrapped
+    // in an Robj (which extendr protects), then feed to List::from_values.
+    let robjs: Vec<Robj> = bytes_vec
+        .iter()
+        .map(|b| Raw::from_bytes(b).into_robj())
+        .collect();
+    Ok(List::from_values(robjs))
+}
+
+/// Read many byte ranges concurrently.
+///
+/// Each of the three input vectors `keys`, `offsets`, `lengths` must have
+/// the same length. Issues up to `concurrency` range-GET requests at once.
+/// Returns a list of raw vectors in input order. Ranges can target the
+/// same key or different keys — this is the primitive for concurrent
+/// COG IFD walks, Zarr chunk reads, Parquet row-group reads.
+///
+/// @param store A `Store` object.
+/// @param keys Character vector of object keys.
+/// @param offsets Numeric vector of 0-based byte offsets (same length).
+/// @param lengths Numeric vector of byte lengths (same length).
+/// @param concurrency Maximum number of concurrent requests.
+/// @return A list of raw vectors.
+/// @export
+#[extendr]
+fn store_get_ranges_many(
+    store: &Store,
+    keys: Vec<String>,
+    offsets: Vec<f64>,
+    lengths: Vec<f64>,
+    concurrency: i32,
+) -> Result<List> {
+    if keys.len() != offsets.len() || keys.len() != lengths.len() {
+        return Err(Error::Other(
+            "keys, offsets, lengths must all have the same length".into(),
+        ));
+    }
+    if concurrency < 1 {
+        return Err(Error::Other("concurrency must be >= 1".into()));
+    }
+    let conc = concurrency as usize;
+    let inner = store.inner.clone();
+
+    let mut jobs: Vec<(usize, ObjectPath, u64, u64)> = Vec::with_capacity(keys.len());
+    for (i, ((k, off), len)) in keys
+        .iter()
+        .zip(offsets.iter())
+        .zip(lengths.iter())
+        .enumerate()
+    {
+        if *off < 0.0 || *len < 0.0 {
+            return Err(Error::Other(format!(
+                "element {i}: offset and length must be non-negative"
+            )));
+        }
+        let p = to_path(k)?;
+        let start = *off as u64;
+        let end = start + (*len as u64);
+        jobs.push((i, p, start, end));
+    }
+
+    let bytes_vec: Vec<bytes::Bytes> = RT
+        .block_on(async {
+            stream::iter(jobs)
+                .map(|(i, path, start, end)| {
+                    let inner = inner.clone();
+                    async move {
+                        let b = inner.get_range(&path, start..end).await?;
+                        Ok::<(usize, bytes::Bytes), object_store::Error>((i, b))
+                    }
+                })
+                .buffer_unordered(conc)
+                .try_collect::<Vec<(usize, bytes::Bytes)>>()
+                .await
+                .map(|mut v| {
+                    v.sort_by_key(|(i, _)| *i);
+                    v.into_iter().map(|(_, b)| b).collect::<Vec<_>>()
+                })
+        })
+        .map_err(os_err)?;
+
+    let robjs: Vec<Robj> = bytes_vec
+        .iter()
+        .map(|b| Raw::from_bytes(b).into_robj())
+        .collect();
+    Ok(List::from_values(robjs))
+}
+
+// ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
 
@@ -325,4 +468,6 @@ extendr_module! {
     fn store_exists;
     fn store_list;
     fn store_copy;
+    fn store_get_many;
+    fn store_get_ranges_many;
 }

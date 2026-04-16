@@ -5,3 +5,4 @@
 ^src/Makevars\.win$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+^README\.Rmd$

@@ -120,6 +120,36 @@ store_list <- function(store, prefix) .Call(wrap__store_list, store, prefix)
 #' @export
 store_copy <- function(store, from, to) .Call(wrap__store_copy, store, from, to)
 
+#' Read many objects concurrently.
+#'
+#' Issues up to `concurrency` GET requests at once via the shared tokio
+#' runtime. Returns a list of raw vectors, one per input key, in input order.
+#' Any failure aborts the whole operation and returns an error.
+#'
+#' @param store A `Store` object.
+#' @param keys Character vector of object keys.
+#' @param concurrency Maximum number of concurrent requests.
+#' @return A list of raw vectors, length `length(keys)`.
+#' @export
+store_get_many <- function(store, keys, concurrency) .Call(wrap__store_get_many, store, keys, concurrency)
+
+#' Read many byte ranges concurrently.
+#'
+#' Each of the three input vectors `keys`, `offsets`, `lengths` must have
+#' the same length. Issues up to `concurrency` range-GET requests at once.
+#' Returns a list of raw vectors in input order. Ranges can target the
+#' same key or different keys — this is the primitive for concurrent
+#' COG IFD walks, Zarr chunk reads, Parquet row-group reads.
+#'
+#' @param store A `Store` object.
+#' @param keys Character vector of object keys.
+#' @param offsets Numeric vector of 0-based byte offsets (same length).
+#' @param lengths Numeric vector of byte lengths (same length).
+#' @param concurrency Maximum number of concurrent requests.
+#' @return A list of raw vectors.
+#' @export
+store_get_ranges_many <- function(store, keys, offsets, lengths, concurrency) .Call(wrap__store_get_ranges_many, store, keys, offsets, lengths, concurrency)
+
 Store <- new.env(parent = emptyenv())
 
 Store$describe <- function() .Call(wrap__Store__describe, self)
