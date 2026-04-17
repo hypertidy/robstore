@@ -9,7 +9,7 @@ name = "robstore"
 
 [dependencies]
 extendr-api = "0.8"
-object_store = { version = "0.13", features = ["aws"] }
+object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
 bytes = "1"
 futures = "0.3"
 tokio = { version = "1", features = ["rt", "rt-multi-thread"] }

@@ -39,9 +39,13 @@ remotes::install_github("mdsumner/robstore")
 | `local_store(path)` | local filesystem rooted at `path` |
 | `s3_store(...)` | AWS S3 or S3-compatible with credentials |
 | `s3_store_anonymous(...)` | public S3 buckets (no signing, e.g. `sentinel-cogs`) |
-| `store_list_many(store, prefixes, concurrency)` | concurrent listings across many prefixes |
+| `gcs_store(bucket)` | Google Cloud Storage with credentials (GOOGLE_APPLICATION_CREDENTIALS) |
+| `gcs_store_anonymous(bucket)` | public GCS buckets (e.g. `gcp-public-data-arco-era5`) |
+| `azure_store(account, container)` | Azure Blob Storage with env-var credentials |
+| `azure_store_sas(account, container, sas_token)` | Azure with a SAS token (e.g. Microsoft Planetary Computer) |
+| `azure_store_anonymous(account, container)` | Azure unsigned (limited — no anonymous listing) |
 
-More backends (GCS, Azure, generic HTTP) are planned.
+More backends (generic HTTP) are planned.
 
 ## A tour of the API
 
@@ -267,6 +271,126 @@ for (batch in batches) {
 }
 ```
 
+### Public GCS — Landsat and ERA5
+
+`gcs_store_anonymous()` opens a public Google Cloud Storage bucket with
+unsigned requests. Combined with `store_list_delimited()` it’s an
+efficient way to explore hierarchical archives like the Landsat mirror:
+
+``` r
+s <- gcs_store_anonymous("gcp-public-data-landsat")
+
+store_list_delimited(s, NULL)
+#> $keys
+#> [1] "index.csv.gz"
+#>
+#> $common_prefixes
+#>  [1] "LC08" "LE07" "LM01" "LM02" "LM03" "LM04" "LM05" "LO08" "LT04" "LT05" "LT08"
+
+store_list_delimited(s, "LC08/01/")$common_prefixes |> length()
+#> [1] 233    # WRS-2 path directories
+
+store_list_delimited(s, "LC08/01/090/")$common_prefixes |> length()
+#> [1] 67     # rows within path 090
+```
+
+For analysis-ready Zarr stores, the cloud-native pattern is to fetch the
+consolidated metadata and compute chunk keys rather than listing them.
+The ERA5 archive on GCS exposes `.zmetadata` as a single ~130 KB JSON
+file that describes the entire store:
+
+``` r
+era <- gcs_store_anonymous("gcp-public-data-arco-era5")
+
+meta <- store_get(era, "ar/full_37-1h-0p25deg-chunk-1.zarr-v3/.zmetadata")
+length(meta)
+#> [1] 132785
+
+cat(substring(rawToChar(meta), 1, 400))
+#> {"metadata": {".zattrs": {"valid_time_start": "1940-01-01",
+#>  "last_updated": "2026-04-17 02:54:09...",
+#>  "valid_time_stop": "2025-12-31", ...},
+#>  "100m_u_component_of_wind/.zarray": {
+#>    "chunks": [1, 721, 1440],
+#>    "compressor": {"cname": "lz4", "id": "blosc", ...},
+#>    "dtype": "<f4",
+#>    "shape": [1323648, 721, 1440], ...}}
+```
+
+That 130 KB JSON describes 85 years of hourly global reanalysis across
+hundreds of variables. The typical workflow is:
+
+1.  `store_get()` the consolidated metadata (one request).
+2.  Parse the JSON in R to learn shape, chunk grid, compressor, dtype.
+3.  Compute exactly the chunk keys you need for your
+    `(variable, time,    lat_range, lon_range)` window.
+4.  `store_get_many()` those chunks concurrently.
+
+No listing of chunks — the metadata tells you the keys directly.
+`robstore` provides the concurrent byte-fetch primitives; a Zarr-aware
+layer (e.g. a future `zaro` integration) handles the codec pipeline and
+array assembly.
+
+### Azure Blob Storage — Microsoft Planetary Computer
+
+Azure’s auth model differs from S3 and GCS: anonymous listing is
+generally not permitted even on “public” containers. Most public Azure
+datasets — the Microsoft Planetary Computer collections in particular —
+are accessed via short-lived SAS tokens from a free token-minting
+endpoint:
+
+    https://planetarycomputer.microsoft.com/api/sas/v1/token/{account}/{container}
+
+Fetch a token, hand it to `azure_store_sas()`, and listing and reads
+work the same as any other backend:
+
+``` r
+library(httr2)
+
+# Free SAS token from Planetary Computer (~1 hour lifetime)
+token <- request(
+  "https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel1euwestrtc/sentinel1-grd-rtc"
+) |>
+  req_perform() |>
+  resp_body_json()
+
+s <- azure_store_sas(
+  account   = "sentinel1euwestrtc",
+  container = "sentinel1-grd-rtc",
+  sas_token = token$token
+)
+s
+#> <AzureStore[sas](sentinel1euwestrtc/sentinel1-grd-rtc)>
+
+# Navigate the Sentinel-1 GRD layout with delimited listings
+store_list_delimited(s, NULL)$common_prefixes
+#> [1] "GRD"
+
+store_list_delimited(s, "GRD/")$common_prefixes
+#>  [1] "GRD/2014" "GRD/2015" "GRD/2016" "GRD/2017" "GRD/2018" "GRD/2019"
+#>  [7] "GRD/2020" "GRD/2021" "GRD/2022" "GRD/2023" "GRD/2024" "GRD/2025"
+#> [13] "GRD/2026"
+
+store_list_delimited(s, "GRD/2024/")$common_prefixes
+#>  [1] "GRD/2024/1"  "GRD/2024/10" "GRD/2024/11" "GRD/2024/12"
+#>  [5] "GRD/2024/2"  "GRD/2024/3"  ...
+```
+
+For your own Azure storage accounts, set the usual environment variables
+and use `azure_store()`:
+
+``` r
+Sys.setenv(
+  AZURE_STORAGE_ACCOUNT_NAME = "myaccount",
+  AZURE_STORAGE_ACCOUNT_KEY  = "..."
+)
+s <- azure_store("myaccount", "mycontainer")
+```
+
+`azure_store_anonymous()` exists for completeness but will fail on most
+containers — Azure does not generally permit unsigned listing on public
+data.
+
 ## API
 
 All operations take a `Store` object as their first argument.
@@ -283,6 +407,8 @@ All operations take a `Store` object as their first argument.
 | `store_get_many(store, keys, concurrency)` | concurrent full-object reads |
 | `store_get_ranges_many(store, keys, offsets, lengths, concurrency)` | concurrent byte-range reads |
 | `store_head_bytes(store, keys, length, offset, concurrency)` | convenience wrapper for fixed-range reads |
+| `store_list_many(store, prefixes, concurrency)` | concurrent listings across many prefixes |
+| `store_list_delimited(store, prefix)` | one-level hierarchical listing (keys + common prefixes) |
 
 Keys are strings; paths like `"a/b/c.txt"` are handled the same way
 across every backend.
@@ -293,7 +419,7 @@ Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3
 (concurrent fan-out) are working and tested against `sentinel-cogs`
 (AWS) and Pawsey. Planned:
 
-- GCS, Azure, generic HTTP backends
+- generic HTTP backends
 - vendored Rust dependencies (`rextendr::vendor_pkgs()`) for CRAN /
   r-universe
 - integration with downstream packages (`rustycogs` for COG byte-range
@@ -302,7 +428,7 @@ Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3
 ## Related
 
 - [`object_store`](https://crates.io/crates/object_store) — the
-  underlying Rust crate (Apache Arrow project)
+  underlying Rust crate (Development Seed project)
 - [`obstore`](https://github.com/developmentseed/obstore) — Python
   bindings to the same crate
 - [`extendr`](https://extendr.rs/) — the R↔Rust bridge used here

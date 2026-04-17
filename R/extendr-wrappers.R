@@ -56,6 +56,85 @@ s3_store <- function(bucket, region, endpoint, allow_http) .Call(wrap__s3_store,
 #' @export
 s3_store_anonymous <- function(bucket, region, endpoint, allow_http) .Call(wrap__s3_store_anonymous, bucket, region, endpoint, allow_http)
 
+#' Create a GCS store for a credentialed bucket.
+#'
+#' Credentials are resolved from standard Google Cloud sources:
+#'
+#' * `GOOGLE_APPLICATION_CREDENTIALS` — path to a service account JSON.
+#' * `GOOGLE_SERVICE_ACCOUNT` / `GOOGLE_SERVICE_ACCOUNT_PATH` — alternate
+#'   env-var names.
+#' * Application Default Credentials (when running on GCE / GKE / etc).
+#'
+#' @param bucket Bucket name.
+#' @return A `Store` object.
+#' @export
+gcs_store <- function(bucket) .Call(wrap__gcs_store, bucket)
+
+#' Create an anonymous GCS store for a public bucket.
+#'
+#' Uses unsigned requests — equivalent to Python fsspec's `token='anon'`
+#' or GDAL's `GS_NO_SIGN_REQUEST=YES`. Suitable for public buckets like
+#' `gcp-public-data-arco-era5`, `gcp-public-data-landsat`, and the
+#' Pangeo / Google Research Zarr archives.
+#'
+#' @param bucket Bucket name (e.g. `"gcp-public-data-arco-era5"`).
+#' @return A `Store` object.
+#' @export
+gcs_store_anonymous <- function(bucket) .Call(wrap__gcs_store_anonymous, bucket)
+
+#' Create an Azure Blob Storage store for a credentialed container.
+#'
+#' Credentials are resolved from standard Azure sources via
+#' `MicrosoftAzureBuilder::from_env()`:
+#'
+#' * `AZURE_STORAGE_ACCOUNT_NAME` + `AZURE_STORAGE_ACCOUNT_KEY`
+#' * `AZURE_STORAGE_SAS_KEY` (SAS token)
+#' * `AZURE_STORAGE_CONNECTION_STRING`
+#' * Managed identity when running on Azure infrastructure.
+#'
+#' @param account Storage account name (e.g. `"myaccount"`).
+#' @param container Blob container name.
+#' @return A `Store` object.
+#' @export
+azure_store <- function(account, container) .Call(wrap__azure_store, account, container)
+
+#' Create an Azure store authenticated with a SAS token.
+#'
+#' This is the common access pattern for public Azure datasets such as
+#' the Microsoft Planetary Computer, which provides free SAS tokens via
+#' an open API:
+#'
+#' ```
+#' https://planetarycomputer.microsoft.com/api/sas/v1/token/{container}
+#' ```
+#'
+#' Unlike S3 and GCS, Azure does not typically permit unsigned
+#' anonymous *listing* even on public containers, so a SAS token is
+#' required in practice.
+#'
+#' @param account Storage account name.
+#' @param container Blob container name.
+#' @param sas_token SAS token string (typically starts with `"sv="`).
+#' @return A `Store` object.
+#' @export
+azure_store_sas <- function(account, container, sas_token) .Call(wrap__azure_store_sas, account, container, sas_token)
+
+#' Create an anonymous Azure store (unsigned).
+#'
+#' Azure does not generally permit anonymous listing even on "public"
+#' containers — you will usually get a 401 `NoAuthenticationInformation`
+#' error on `store_list*()` calls. Anonymous *reads* of known blob
+#' names may still work depending on the container's public access
+#' level. For most real Azure workflows use [`azure_store_sas()`] with
+#' a SAS token, or [`azure_store()`] with credentials from environment
+#' variables.
+#'
+#' @param account Storage account name.
+#' @param container Blob container name.
+#' @return A `Store` object.
+#' @export
+azure_store_anonymous <- function(account, container) .Call(wrap__azure_store_anonymous, account, container)
+
 #' Write raw bytes to `key` in `store`.
 #'
 #' @param store A `Store` object.
@@ -126,6 +205,24 @@ store_list <- function(store, prefix) .Call(wrap__store_list, store, prefix)
 #'   guaranteed order.
 #' @export
 store_list_many <- function(store, prefixes, concurrency) .Call(wrap__store_list_many, store, prefixes, concurrency)
+
+#' List one level of the hierarchy under a prefix (delimited listing).
+#'
+#' Unlike `store_list()` which recursively enumerates every key under the
+#' prefix, this returns only the immediate children: the keys that live
+#' directly at that level (files) and the "common prefixes" one level
+#' deeper (directories). This is the efficient way to explore Zarr
+#' stores, large partitioned datasets, or any hierarchical bucket
+#' layout — you never accidentally stream millions of chunk keys.
+#'
+#' Delimiter is always `/`.
+#'
+#' @param store A `Store` object.
+#' @param prefix Optional prefix (string or `NULL`).
+#' @return A list with two character vectors:
+#'   `keys` (objects at this level) and `common_prefixes` (subdirectories).
+#' @export
+store_list_delimited <- function(store, prefix) .Call(wrap__store_list_delimited, store, prefix)
 
 #' Copy an object from `from` to `to` within the same store.
 #'

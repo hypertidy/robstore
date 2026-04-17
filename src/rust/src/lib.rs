@@ -10,6 +10,8 @@
 use extendr_api::prelude::*;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use object_store::aws::AmazonS3Builder;
+use object_store::azure::MicrosoftAzureBuilder;
+use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::memory::InMemory;
 use object_store::path::Path as ObjectPath;
@@ -171,6 +173,141 @@ fn s3_store_anonymous(
     Ok(Store {
         inner: Arc::new(s3),
         label,
+    })
+}
+
+/// Create a GCS store for a credentialed bucket.
+///
+/// Credentials are resolved from standard Google Cloud sources:
+///
+/// * `GOOGLE_APPLICATION_CREDENTIALS` — path to a service account JSON.
+/// * `GOOGLE_SERVICE_ACCOUNT` / `GOOGLE_SERVICE_ACCOUNT_PATH` — alternate
+///   env-var names.
+/// * Application Default Credentials (when running on GCE / GKE / etc).
+///
+/// @param bucket Bucket name.
+/// @return A `Store` object.
+/// @export
+#[extendr]
+fn gcs_store(bucket: &str) -> Result<Store> {
+    let gcs = GoogleCloudStorageBuilder::from_env()
+        .with_bucket_name(bucket)
+        .build()
+        .map_err(|e| Error::Other(format!("failed to build GCS store: {e}")))?;
+    Ok(Store {
+        inner: Arc::new(gcs),
+        label: format!("GCSStore({bucket})"),
+    })
+}
+
+/// Create an anonymous GCS store for a public bucket.
+///
+/// Uses unsigned requests — equivalent to Python fsspec's `token='anon'`
+/// or GDAL's `GS_NO_SIGN_REQUEST=YES`. Suitable for public buckets like
+/// `gcp-public-data-arco-era5`, `gcp-public-data-landsat`, and the
+/// Pangeo / Google Research Zarr archives.
+///
+/// @param bucket Bucket name (e.g. `"gcp-public-data-arco-era5"`).
+/// @return A `Store` object.
+/// @export
+#[extendr]
+fn gcs_store_anonymous(bucket: &str) -> Result<Store> {
+    let gcs = GoogleCloudStorageBuilder::new()
+        .with_bucket_name(bucket)
+        .with_skip_signature(true)
+        .build()
+        .map_err(|e| Error::Other(format!("failed to build anonymous GCS store: {e}")))?;
+    Ok(Store {
+        inner: Arc::new(gcs),
+        label: format!("GCSStore[anon]({bucket})"),
+    })
+}
+
+/// Create an Azure Blob Storage store for a credentialed container.
+///
+/// Credentials are resolved from standard Azure sources via
+/// `MicrosoftAzureBuilder::from_env()`:
+///
+/// * `AZURE_STORAGE_ACCOUNT_NAME` + `AZURE_STORAGE_ACCOUNT_KEY`
+/// * `AZURE_STORAGE_SAS_KEY` (SAS token)
+/// * `AZURE_STORAGE_CONNECTION_STRING`
+/// * Managed identity when running on Azure infrastructure.
+///
+/// @param account Storage account name (e.g. `"myaccount"`).
+/// @param container Blob container name.
+/// @return A `Store` object.
+/// @export
+#[extendr]
+fn azure_store(account: &str, container: &str) -> Result<Store> {
+    let az = MicrosoftAzureBuilder::from_env()
+        .with_account(account)
+        .with_container_name(container)
+        .build()
+        .map_err(|e| Error::Other(format!("failed to build Azure store: {e}")))?;
+    Ok(Store {
+        inner: Arc::new(az),
+        label: format!("AzureStore({account}/{container})"),
+    })
+}
+
+/// Create an Azure store authenticated with a SAS token.
+///
+/// This is the common access pattern for public Azure datasets such as
+/// the Microsoft Planetary Computer, which provides free SAS tokens via
+/// an open API:
+///
+/// ```
+/// https://planetarycomputer.microsoft.com/api/sas/v1/token/{container}
+/// ```
+///
+/// Unlike S3 and GCS, Azure does not typically permit unsigned
+/// anonymous *listing* even on public containers, so a SAS token is
+/// required in practice.
+///
+/// @param account Storage account name.
+/// @param container Blob container name.
+/// @param sas_token SAS token string (typically starts with `"sv="`).
+/// @return A `Store` object.
+/// @export
+#[extendr]
+fn azure_store_sas(account: &str, container: &str, sas_token: &str) -> Result<Store> {
+    let az = MicrosoftAzureBuilder::new()
+        .with_account(account)
+        .with_container_name(container)
+        .with_config(object_store::azure::AzureConfigKey::SasKey, sas_token)
+        .build()
+        .map_err(|e| Error::Other(format!("failed to build SAS Azure store: {e}")))?;
+    Ok(Store {
+        inner: Arc::new(az),
+        label: format!("AzureStore[sas]({account}/{container})"),
+    })
+}
+
+/// Create an anonymous Azure store (unsigned).
+///
+/// Azure does not generally permit anonymous listing even on "public"
+/// containers — you will usually get a 401 `NoAuthenticationInformation`
+/// error on `store_list*()` calls. Anonymous *reads* of known blob
+/// names may still work depending on the container's public access
+/// level. For most real Azure workflows use [`azure_store_sas()`] with
+/// a SAS token, or [`azure_store()`] with credentials from environment
+/// variables.
+///
+/// @param account Storage account name.
+/// @param container Blob container name.
+/// @return A `Store` object.
+/// @export
+#[extendr]
+fn azure_store_anonymous(account: &str, container: &str) -> Result<Store> {
+    let az = MicrosoftAzureBuilder::new()
+        .with_account(account)
+        .with_container_name(container)
+        .with_skip_signature(true)
+        .build()
+        .map_err(|e| Error::Other(format!("failed to build anonymous Azure store: {e}")))?;
+    Ok(Store {
+        inner: Arc::new(az),
+        label: format!("AzureStore[anon]({account}/{container})"),
     })
 }
 
@@ -506,6 +643,58 @@ fn store_list_many(
     Ok(all_keys)
 }
 
+/// List one level of the hierarchy under a prefix (delimited listing).
+///
+/// Unlike `store_list()` which recursively enumerates every key under the
+/// prefix, this returns only the immediate children: the keys that live
+/// directly at that level (files) and the "common prefixes" one level
+/// deeper (directories). This is the efficient way to explore Zarr
+/// stores, large partitioned datasets, or any hierarchical bucket
+/// layout — you never accidentally stream millions of chunk keys.
+///
+/// Delimiter is always `/`.
+///
+/// @param store A `Store` object.
+/// @param prefix Optional prefix (string or `NULL`).
+/// @return A list with two character vectors:
+///   `keys` (objects at this level) and `common_prefixes` (subdirectories).
+/// @export
+#[extendr]
+fn store_list_delimited(store: &Store, prefix: Nullable<&str>) -> Result<List> {
+    let prefix_path = match prefix {
+        Nullable::NotNull(p) => Some(to_path(p)?),
+        Nullable::Null => None,
+    };
+
+    let (keys, common_prefixes): (Vec<String>, Vec<String>) = RT
+        .block_on(async {
+            let r = store
+                .inner
+                .list_with_delimiter(prefix_path.as_ref())
+                .await?;
+            let keys: Vec<String> = r
+                .objects
+                .into_iter()
+                .map(|m| m.location.to_string())
+                .collect();
+            let common: Vec<String> = r
+                .common_prefixes
+                .into_iter()
+                .map(|p| p.to_string())
+                .collect();
+            Ok::<(Vec<String>, Vec<String>), object_store::Error>((keys, common))
+        })
+        .map_err(os_err)?;
+
+    // Return as a named list(keys = ..., common_prefixes = ...)
+    let keys_robj: Robj = keys.into();
+    let common_robj: Robj = common_prefixes.into();
+    Ok(List::from_names_and_values(
+        &["keys", "common_prefixes"],
+        &[keys_robj, common_robj],
+    )?)
+}
+
 // ---------------------------------------------------------------------------
 // Module registration
 // ---------------------------------------------------------------------------
@@ -517,6 +706,11 @@ extendr_module! {
     fn local_store;
     fn s3_store;
     fn s3_store_anonymous;
+    fn gcs_store;
+    fn gcs_store_anonymous;
+    fn azure_store;
+    fn azure_store_sas;
+    fn azure_store_anonymous;
     fn store_put;
     fn store_get;
     fn store_get_range;
@@ -524,6 +718,7 @@ extendr_module! {
     fn store_exists;
     fn store_list;
     fn store_list_many;
+    fn store_list_delimited;
     fn store_copy;
     fn store_get_many;
     fn store_get_ranges_many;

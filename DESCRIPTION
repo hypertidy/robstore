@@ -1,12 +1,11 @@
 Package: robstore
 Title: Object Storage via the Rust object_store Crate
-Version: 0.1.0
+Version: 0.1.5
 Authors@R:
     person("Michael", "Sumner", , "mdsumner@gmail.com", role = c("aut", "cre"))
 Description: R bindings to the Rust object_store crate, providing a uniform
     interface to local filesystems and (later) cloud object stores including
-    S3, GCS, and Azure. Phase 1 supports local filesystem and in-memory stores
-    only; cloud backends and async I/O are planned.
+    S3, GCS, and Azure. 
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
