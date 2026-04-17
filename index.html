@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/v4-shims.min.css" integrity="sha256-wZjR52fzng1pJHwx4aV2AO3yyTOXrcDW7jBpJtTwVxw=" crossorigin="anonymous">
 <!-- clipboard.js --><script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.6/clipboard.min.js" integrity="sha256-inc5kl9MA1hkeYUt+EC3BhlIgyp/2jDIyBLS6k3UxPI=" crossorigin="anonymous"></script><!-- headroom.js --><script src="https://cdnjs.cloudflare.com/ajax/libs/headroom/0.11.0/headroom.min.js" integrity="sha256-AsUX4SJE1+yuDu5+mAVzJbuYNPHj/WroHuZ8Ir/CkE0=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/headroom/0.11.0/jQuery.headroom.min.js" integrity="sha256-ZX/yNShbjqsohH1k95liqY9Gd8uOiE1S4vZc+9KQ1K4=" crossorigin="anonymous"></script><!-- pkgdown --><link href="pkgdown.css" rel="stylesheet">
 <script src="pkgdown.js"></script><meta property="og:title" content="Object Storage via the Rust object_store Crate">
-<meta property="og:description" content="R bindings to the Rust object_store crate, providing a uniform interface to local filesystems and (later) cloud object stores including S3, GCS, and Azure. Phase 1 supports local filesystem and in-memory stores only; cloud backends and async I/O are planned.">
+<meta property="og:description" content="R bindings to the Rust object_store crate, providing a uniform interface to local filesystems and (later) cloud object stores including S3, GCS, and Azure.">
 <!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="index.html">robstore</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.5</span>
       </span>
     </div>
 
@@ -112,12 +112,28 @@
 <td>public S3 buckets (no signing, e.g. <code>sentinel-cogs</code>)</td>
 </tr>
 <tr class="odd">
-<td><code>store_list_many(store, prefixes, concurrency)</code></td>
-<td>concurrent listings across many prefixes</td>
+<td><code>gcs_store(bucket)</code></td>
+<td>Google Cloud Storage with credentials (GOOGLE_APPLICATION_CREDENTIALS)</td>
+</tr>
+<tr class="even">
+<td><code>gcs_store_anonymous(bucket)</code></td>
+<td>public GCS buckets (e.g. <code>gcp-public-data-arco-era5</code>)</td>
+</tr>
+<tr class="odd">
+<td><code>azure_store(account, container)</code></td>
+<td>Azure Blob Storage with env-var credentials</td>
+</tr>
+<tr class="even">
+<td><code>azure_store_sas(account, container, sas_token)</code></td>
+<td>Azure with a SAS token (e.g. Microsoft Planetary Computer)</td>
+</tr>
+<tr class="odd">
+<td><code>azure_store_anonymous(account, container)</code></td>
+<td>Azure unsigned (limited — no anonymous listing)</td>
 </tr>
 </tbody>
 </table>
-<p>More backends (GCS, Azure, generic HTTP) are planned.</p>
+<p>More backends (generic HTTP) are planned.</p>
 </div>
 <div class="section level2">
 <h2 id="a-tour-of-the-api">A tour of the API<a class="anchor" aria-label="anchor" href="#a-tour-of-the-api"></a>
@@ -314,6 +330,98 @@
 <span>  <span class="co"># ... extract IFD offsets, write references, etc.</span></span>
 <span><span class="op">}</span></span></code></pre></div>
 </div>
+<div class="section level3">
+<h3 id="public-gcs--landsat-and-era5">Public GCS — Landsat and ERA5<a class="anchor" aria-label="anchor" href="#public-gcs--landsat-and-era5"></a>
+</h3>
+<p><code><a href="reference/gcs_store_anonymous.html">gcs_store_anonymous()</a></code> opens a public Google Cloud Storage bucket with unsigned requests. Combined with <code><a href="reference/store_list_delimited.html">store_list_delimited()</a></code> it’s an efficient way to explore hierarchical archives like the Landsat mirror:</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/gcs_store_anonymous.html">gcs_store_anonymous</a></span><span class="op">(</span><span class="st">"gcp-public-data-landsat"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="cn">NULL</span><span class="op">)</span></span>
+<span><span class="co">#&gt; $keys</span></span>
+<span><span class="co">#&gt; [1] "index.csv.gz"</span></span>
+<span><span class="co">#&gt;</span></span>
+<span><span class="co">#&gt; $common_prefixes</span></span>
+<span><span class="co">#&gt;  [1] "LC08" "LE07" "LM01" "LM02" "LM03" "LM04" "LM05" "LO08" "LT04" "LT05" "LT08"</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"LC08/01/"</span><span class="op">)</span><span class="op">$</span><span class="va">common_prefixes</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 233    # WRS-2 path directories</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"LC08/01/090/"</span><span class="op">)</span><span class="op">$</span><span class="va">common_prefixes</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 67     # rows within path 090</span></span></code></pre></div>
+<p>For analysis-ready Zarr stores, the cloud-native pattern is to fetch the consolidated metadata and compute chunk keys rather than listing them. The ERA5 archive on GCS exposes <code>.zmetadata</code> as a single ~130 KB JSON file that describes the entire store:</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">era</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/gcs_store_anonymous.html">gcs_store_anonymous</a></span><span class="op">(</span><span class="st">"gcp-public-data-arco-era5"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">meta</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_get.html">store_get</a></span><span class="op">(</span><span class="va">era</span>, <span class="st">"ar/full_37-1h-0p25deg-chunk-1.zarr-v3/.zmetadata"</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">meta</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 132785</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/cat.html" class="external-link">cat</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/substr.html" class="external-link">substring</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/rawConversion.html" class="external-link">rawToChar</a></span><span class="op">(</span><span class="va">meta</span><span class="op">)</span>, <span class="fl">1</span>, <span class="fl">400</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; {"metadata": {".zattrs": {"valid_time_start": "1940-01-01",</span></span>
+<span><span class="co">#&gt;  "last_updated": "2026-04-17 02:54:09...",</span></span>
+<span><span class="co">#&gt;  "valid_time_stop": "2025-12-31", ...},</span></span>
+<span><span class="co">#&gt;  "100m_u_component_of_wind/.zarray": {</span></span>
+<span><span class="co">#&gt;    "chunks": [1, 721, 1440],</span></span>
+<span><span class="co">#&gt;    "compressor": {"cname": "lz4", "id": "blosc", ...},</span></span>
+<span><span class="co">#&gt;    "dtype": "&lt;f4",</span></span>
+<span><span class="co">#&gt;    "shape": [1323648, 721, 1440], ...}}</span></span></code></pre></div>
+<p>That 130 KB JSON describes 85 years of hourly global reanalysis across hundreds of variables. The typical workflow is:</p>
+<ol style="list-style-type: decimal">
+<li>
+<code><a href="reference/store_get.html">store_get()</a></code> the consolidated metadata (one request).</li>
+<li>Parse the JSON in R to learn shape, chunk grid, compressor, dtype.</li>
+<li>Compute exactly the chunk keys you need for your <code>(variable, time,    lat_range, lon_range)</code> window.</li>
+<li>
+<code><a href="reference/store_get_many.html">store_get_many()</a></code> those chunks concurrently.</li>
+</ol>
+<p>No listing of chunks — the metadata tells you the keys directly. <code>robstore</code> provides the concurrent byte-fetch primitives; a Zarr-aware layer (e.g. a future <code>zaro</code> integration) handles the codec pipeline and array assembly.</p>
+</div>
+<div class="section level3">
+<h3 id="azure-blob-storage--microsoft-planetary-computer">Azure Blob Storage — Microsoft Planetary Computer<a class="anchor" aria-label="anchor" href="#azure-blob-storage--microsoft-planetary-computer"></a>
+</h3>
+<p>Azure’s auth model differs from S3 and GCS: anonymous listing is generally not permitted even on “public” containers. Most public Azure datasets — the Microsoft Planetary Computer collections in particular — are accessed via short-lived SAS tokens from a free token-minting endpoint:</p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode R"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a>https<span class="sc">:</span><span class="er">//</span>planetarycomputer.microsoft.com<span class="sc">/</span>api<span class="sc">/</span>sas<span class="sc">/</span>v1<span class="sc">/</span>token<span class="sc">/</span>{account}<span class="sc">/</span>{container}</span></code></pre></div>
+<p>Fetch a token, hand it to <code><a href="reference/azure_store_sas.html">azure_store_sas()</a></code>, and listing and reads work the same as any other backend:</p>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://httr2.r-lib.org" class="external-link">httr2</a></span><span class="op">)</span></span>
+<span></span>
+<span><span class="co"># Free SAS token from Planetary Computer (~1 hour lifetime)</span></span>
+<span><span class="va">token</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://httr2.r-lib.org/reference/request.html" class="external-link">request</a></span><span class="op">(</span></span>
+<span>  <span class="st">"https://planetarycomputer.microsoft.com/api/sas/v1/token/sentinel1euwestrtc/sentinel1-grd-rtc"</span></span>
+<span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://httr2.r-lib.org/reference/req_perform.html" class="external-link">req_perform</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://httr2.r-lib.org/reference/resp_body_raw.html" class="external-link">resp_body_json</a></span><span class="op">(</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/azure_store_sas.html">azure_store_sas</a></span><span class="op">(</span></span>
+<span>  account   <span class="op">=</span> <span class="st">"sentinel1euwestrtc"</span>,</span>
+<span>  container <span class="op">=</span> <span class="st">"sentinel1-grd-rtc"</span>,</span>
+<span>  sas_token <span class="op">=</span> <span class="va">token</span><span class="op">$</span><span class="va">token</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">s</span></span>
+<span><span class="co">#&gt; &lt;AzureStore[sas](sentinel1euwestrtc/sentinel1-grd-rtc)&gt;</span></span>
+<span></span>
+<span><span class="co"># Navigate the Sentinel-1 GRD layout with delimited listings</span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="cn">NULL</span><span class="op">)</span><span class="op">$</span><span class="va">common_prefixes</span></span>
+<span><span class="co">#&gt; [1] "GRD"</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"GRD/"</span><span class="op">)</span><span class="op">$</span><span class="va">common_prefixes</span></span>
+<span><span class="co">#&gt;  [1] "GRD/2014" "GRD/2015" "GRD/2016" "GRD/2017" "GRD/2018" "GRD/2019"</span></span>
+<span><span class="co">#&gt;  [7] "GRD/2020" "GRD/2021" "GRD/2022" "GRD/2023" "GRD/2024" "GRD/2025"</span></span>
+<span><span class="co">#&gt; [13] "GRD/2026"</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"GRD/2024/"</span><span class="op">)</span><span class="op">$</span><span class="va">common_prefixes</span></span>
+<span><span class="co">#&gt;  [1] "GRD/2024/1"  "GRD/2024/10" "GRD/2024/11" "GRD/2024/12"</span></span>
+<span><span class="co">#&gt;  [5] "GRD/2024/2"  "GRD/2024/3"  ...</span></span></code></pre></div>
+<p>For your own Azure storage accounts, set the usual environment variables and use <code><a href="reference/azure_store.html">azure_store()</a></code>:</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Sys.setenv.html" class="external-link">Sys.setenv</a></span><span class="op">(</span></span>
+<span>  AZURE_STORAGE_ACCOUNT_NAME <span class="op">=</span> <span class="st">"myaccount"</span>,</span>
+<span>  AZURE_STORAGE_ACCOUNT_KEY  <span class="op">=</span> <span class="st">"..."</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/azure_store.html">azure_store</a></span><span class="op">(</span><span class="st">"myaccount"</span>, <span class="st">"mycontainer"</span><span class="op">)</span></span></code></pre></div>
+<p><code><a href="reference/azure_store_anonymous.html">azure_store_anonymous()</a></code> exists for completeness but will fail on most containers — Azure does not generally permit unsigned listing on public data.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="api">API<a class="anchor" aria-label="anchor" href="#api"></a>
@@ -371,6 +479,14 @@
 <td><code>store_head_bytes(store, keys, length, offset, concurrency)</code></td>
 <td>convenience wrapper for fixed-range reads</td>
 </tr>
+<tr class="odd">
+<td><code>store_list_many(store, prefixes, concurrency)</code></td>
+<td>concurrent listings across many prefixes</td>
+</tr>
+<tr class="even">
+<td><code>store_list_delimited(store, prefix)</code></td>
+<td>one-level hierarchical listing (keys + common prefixes)</td>
+</tr>
 </tbody>
 </table>
 <p>Keys are strings; paths like <code>"a/b/c.txt"</code> are handled the same way across every backend.</p>
@@ -380,7 +496,7 @@
 </h2>
 <p>Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3 (concurrent fan-out) are working and tested against <code>sentinel-cogs</code> (AWS) and Pawsey. Planned:</p>
 <ul>
-<li>GCS, Azure, generic HTTP backends</li>
+<li>generic HTTP backends</li>
 <li>vendored Rust dependencies (<code>rextendr::vendor_pkgs()</code>) for CRAN / r-universe</li>
 <li>integration with downstream packages (<code>rustycogs</code> for COG byte-range scanning, <code>zaro</code> for Zarr stores)</li>
 </ul>
@@ -390,7 +506,7 @@
 </h2>
 <ul>
 <li>
-<a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> — the underlying Rust crate (Apache Arrow project)</li>
+<a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> — the underlying Rust crate (Development Seed project)</li>
 <li>
 <a href="https://github.com/developmentseed/obstore" class="external-link"><code>obstore</code></a> — Python bindings to the same crate</li>
 <li>

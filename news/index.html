@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">robstore</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.5</span>
       </span>
     </div>
 
@@ -49,7 +49,7 @@
 
     <div class="section level2">
 <h2 class="page-header" data-toc-text="0.1.0" id="robstore-010">robstore 0.1.0<a class="anchor" aria-label="anchor" href="#robstore-010"></a></h2>
-<p>First working release. R bindings to the Rust <a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> crate via <a href="https://extendr.rs/" class="external-link">extendr</a>, with a uniform API across local filesystems and S3-compatible object stores.</p>
+<p>First release. R bindings to the Rust <a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> crate via <a href="https://extendr.rs/" class="external-link">extendr</a>, with a uniform API across local filesystems, AWS S3, S3-compatible endpoints, and Google Cloud Storage.</p>
 <div class="section level3">
 <h3 id="backends-0-1-0">Backends<a class="anchor" aria-label="anchor" href="#backends-0-1-0"></a></h3>
 <ul><li>
@@ -57,9 +57,19 @@
 <li>
 <code>local_store(path)</code> — local filesystem rooted at <code>path</code>.</li>
 <li>
-<code>s3_store(bucket, region, endpoint, allow_http)</code> — AWS S3 or any S3-compatible service (Pawsey, MinIO, etc.). Credentials resolved from the standard <code>AWS_ACCESS_KEY_ID</code> / <code>AWS_SECRET_ACCESS_KEY</code> environment variables.</li>
+<code>s3_store(bucket, region, endpoint, allow_http)</code> — AWS S3 or any S3-compatible service (Pawsey, MinIO, etc.). Credentials resolved from <code>AWS_ACCESS_KEY_ID</code> / <code>AWS_SECRET_ACCESS_KEY</code> environment variables.</li>
 <li>
 <code>s3_store_anonymous(bucket, region, endpoint, allow_http)</code> — public S3 buckets with unsigned requests (e.g. <code>sentinel-cogs</code>).</li>
+<li>
+<code>gcs_store(bucket)</code> — Google Cloud Storage. Credentials resolved from <code>GOOGLE_APPLICATION_CREDENTIALS</code> / Application Default Credentials.</li>
+<li>
+<code>gcs_store_anonymous(bucket)</code> — public GCS buckets with unsigned requests (e.g. <code>gcp-public-data-arco-era5</code>, <code>gcp-public-data-landsat</code>).</li>
+<li>
+<code>azure_store(account, container)</code> — Azure Blob Storage with credentials from env vars (AZURE_STORAGE_ACCOUNT_NAME / AZURE_STORAGE_ACCOUNT_KEY / AZURE_STORAGE_SAS_KEY).</li>
+<li>
+<code>azure_store_sas(account, container, sas_token)</code> — SAS-token authenticated access; the typical pattern for Microsoft Planetary Computer data (free SAS endpoint at <a href="https://planetarycomputer.microsoft.com/api/sas/v1/token/" class="external-link uri">https://planetarycomputer.microsoft.com/api/sas/v1/token/</a>…).</li>
+<li>
+<code>azure_store_anonymous(account, container)</code> — unsigned access. Note that Azure generally does not permit anonymous listing even on public containers.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="core-operations-0-1-0">Core operations<a class="anchor" aria-label="anchor" href="#core-operations-0-1-0"></a></h3>
@@ -68,39 +78,46 @@
 <li>
 <code><a href="../reference/store_exists.html">store_exists()</a></code>, <code><a href="../reference/store_delete.html">store_delete()</a></code>, <code><a href="../reference/store_copy.html">store_copy()</a></code> — metadata and single-object operations.</li>
 <li>
-<code>store_list(store, prefix)</code> — list keys under a prefix.</li>
+<code>store_list(store, prefix)</code> — recursive list of keys under a prefix.</li>
+<li>
+<code>store_list_delimited(store, prefix)</code> — efficient one-level hierarchical listing, returning immediate keys and common prefixes. Suitable for exploring bucket structure without enumerating trees.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="concurrent-operations-0-1-0">Concurrent operations<a class="anchor" aria-label="anchor" href="#concurrent-operations-0-1-0"></a></h3>
-<p>All run on a shared multi-threaded tokio runtime:</p>
+<p>All run on a shared multi-threaded tokio runtime; concurrency is bounded by the user via a <code>concurrency</code> argument.</p>
 <ul><li>
 <code>store_get_many(store, keys, concurrency)</code> — concurrent full-object reads.</li>
 <li>
 <code>store_get_ranges_many(store, keys, offsets, lengths, concurrency)</code> — concurrent byte-range reads. The primitive for COG IFD walks, Zarr chunk scatter-reads, and Parquet row-group reads.</li>
 <li>
-<code>store_list_many(store, prefixes, concurrency)</code> — concurrent listings across many prefixes, for hierarchical layouts (years, MGRS tiles).</li>
+<code>store_list_many(store, prefixes, concurrency)</code> — concurrent listings across many prefixes, for hierarchical layouts (years, MGRS tiles, product types).</li>
 <li>
 <code>store_head_bytes(store, keys, length, offset, concurrency)</code> — R-side convenience wrapper for the common case of reading a fixed-length header from many files.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="performance-0-1-0">Performance<a class="anchor" aria-label="anchor" href="#performance-0-1-0"></a></h3>
-<p>Verified against <code>sentinel-cogs</code> (AWS us-west-2) and a Pawsey S3 bucket:</p>
-<ul><li>63-key × 64KB byte-range scatter: <strong>19.3s sequential → 0.77s at concurrency=32</strong> (25× speedup).</li>
-<li>552,860-key bucket listing fanned out across 12 year-prefixes: <strong>43s serial → 8.5s parallel</strong> (5× speedup).</li>
+<p>Verified against <code>sentinel-cogs</code> (AWS us-west-2), Pawsey <code>estinel</code>, and <code>gcp-public-data-arco-era5</code> (GCS):</p>
+<ul><li>63-key × 64 KB byte-range scatter on AWS: <strong>19.3 s sequential → 0.77 s at concurrency = 32</strong> (25× speedup).</li>
+<li>552,860-key bucket listing on Pawsey fanned out across 12 year-prefixes: <strong>43 s serial → 8.5 s parallel</strong> (5× speedup).</li>
+<li>End-to-end catalog build from a production Pawsey bucket (552,860 objects → 65,734 catalog entries across 135 locations, 10-year date range): <strong>11 s</strong>, including all R-side parsing and aggregation.</li>
 <li>Listed 543,889 keys from a single <code>sentinel-cogs</code> prefix in one call without issue.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="build-0-1-0">Build<a class="anchor" aria-label="anchor" href="#build-0-1-0"></a></h3>
-<ul><li>extendr-api 0.8, object_store 0.13 (aws feature), tokio multi-threaded runtime via <code>once_cell::sync::Lazy</code>.</li>
+<ul><li>
+<code>extendr-api</code> 0.8, <code>object_store</code> 0.13 with <code>aws</code> and <code>gcp</code> features.</li>
+<li>Shared multi-threaded tokio runtime via <code>once_cell::sync::Lazy</code>.</li>
 <li>
 <code>futures::stream::buffer_unordered</code> for bounded concurrency on fan-out operations.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="known-limitations-0-1-0">Known limitations<a class="anchor" aria-label="anchor" href="#known-limitations-0-1-0"></a></h3>
-<ul><li>Only S3 (and S3-compatible) cloud backends are wired up so far. Google Cloud Storage, Azure Blob Storage, and generic HTTP backends are planned.</li>
+<ul><li>Azure Blob Storage and generic HTTP backends are not yet wired up.</li>
 <li>Rust dependencies are not yet vendored; CRAN submission will need <code>rextendr::vendor_pkgs()</code>.</li>
 <li>
 <code><a href="../reference/store_list_many.html">store_list_many()</a></code> does not preserve input order.</li>
+<li>
+<code><a href="../reference/store_list_delimited.html">store_list_delimited()</a></code> always uses <code>/</code> as the delimiter.</li>
 </ul></div>
 </div>
   </div>

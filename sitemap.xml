@@ -3,6 +3,11 @@
 <url><loc>/authors.html</loc></url>
 <url><loc>/index.html</loc></url>
 <url><loc>/news/index.html</loc></url>
+<url><loc>/reference/azure_store.html</loc></url>
+<url><loc>/reference/azure_store_anonymous.html</loc></url>
+<url><loc>/reference/azure_store_sas.html</loc></url>
+<url><loc>/reference/gcs_store.html</loc></url>
+<url><loc>/reference/gcs_store_anonymous.html</loc></url>
 <url><loc>/reference/index.html</loc></url>
 <url><loc>/reference/local_store.html</loc></url>
 <url><loc>/reference/memory_store.html</loc></url>
@@ -17,6 +22,7 @@
 <url><loc>/reference/store_get_ranges_many.html</loc></url>
 <url><loc>/reference/store_head_bytes.html</loc></url>
 <url><loc>/reference/store_list.html</loc></url>
+<url><loc>/reference/store_list_delimited.html</loc></url>
 <url><loc>/reference/store_list_many.html</loc></url>
 <url><loc>/reference/store_put.html</loc></url>
 </urlset>

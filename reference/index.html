@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">robstore</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.5</span>
       </span>
     </div>
 
@@ -51,6 +51,26 @@
           <p class="section-desc"></p>
         </th>
       </tr></tbody><tbody><tr><td>
+          <p><code><a href="azure_store.html">azure_store()</a></code> </p>
+        </td>
+        <td><p>Create an Azure Blob Storage store for a credentialed container.</p></td>
+      </tr><tr><td>
+          <p><code><a href="azure_store_anonymous.html">azure_store_anonymous()</a></code> </p>
+        </td>
+        <td><p>Create an anonymous Azure store (unsigned).</p></td>
+      </tr><tr><td>
+          <p><code><a href="azure_store_sas.html">azure_store_sas()</a></code> </p>
+        </td>
+        <td><p>Create an Azure store authenticated with a SAS token.</p></td>
+      </tr><tr><td>
+          <p><code><a href="gcs_store.html">gcs_store()</a></code> </p>
+        </td>
+        <td><p>Create a GCS store for a credentialed bucket.</p></td>
+      </tr><tr><td>
+          <p><code><a href="gcs_store_anonymous.html">gcs_store_anonymous()</a></code> </p>
+        </td>
+        <td><p>Create an anonymous GCS store for a public bucket.</p></td>
+      </tr><tr><td>
           <p><code><a href="local_store.html">local_store()</a></code> </p>
         </td>
         <td><p>Create a local filesystem store rooted at <code>path</code>.</p></td>
@@ -102,6 +122,10 @@
           <p><code><a href="store_list.html">store_list()</a></code> </p>
         </td>
         <td><p>List object keys under an optional prefix.</p></td>
+      </tr><tr><td>
+          <p><code><a href="store_list_delimited.html">store_list_delimited()</a></code> </p>
+        </td>
+        <td><p>List one level of the hierarchy under a prefix (delimited listing).</p></td>
       </tr><tr><td>
           <p><code><a href="store_list_many.html">store_list_many()</a></code> </p>
         </td>
