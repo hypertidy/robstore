@@ -14,8 +14,9 @@ with [extendr](https://extendr.rs/).
 
 The same small API (`store_put`, `store_get`, `store_get_range`,
 `store_list`, `store_exists`, `store_delete`, `store_copy`) works across
-every backend — switching between in-memory, local disk, AWS S3, and
-S3-compatible endpoints like Pawsey is just a change of constructor.
+every backend — switching between in-memory, local disk, AWS S3,
+S3-compatible endpoints like Pawsey or source.coop, Google Cloud
+Storage, and Azure Blob Storage is just a change of constructor.
 
 For cloud workloads, `store_get_many()` and `store_get_ranges_many()`
 fan requests out concurrently through a shared tokio runtime, delivering
@@ -38,16 +39,16 @@ remotes::install_github("mdsumner/robstore")
 | `memory_store()` | in-memory (tests, scratch) |
 | `local_store(path)` | local filesystem rooted at `path` |
 | `s3_store(...)` | AWS S3 or S3-compatible with credentials |
-| `s3_store_anonymous(...)` | public S3 buckets (no signing, e.g. `sentinel-cogs`) |
+| `s3_store_anonymous(...)` | public S3 buckets (e.g. `sentinel-cogs`, `source.coop`) |
 | `gcs_store(bucket)` | Google Cloud Storage with credentials (GOOGLE_APPLICATION_CREDENTIALS) |
 | `gcs_store_anonymous(bucket)` | public GCS buckets (e.g. `gcp-public-data-arco-era5`) |
 | `azure_store(account, container)` | Azure Blob Storage with env-var credentials |
 | `azure_store_sas(account, container, sas_token)` | Azure with a SAS token (e.g. Microsoft Planetary Computer) |
 | `azure_store_anonymous(account, container)` | Azure unsigned (limited — no anonymous listing) |
 
-More backends (generic HTTP) are planned.
+Generic HTTP is planned.
 
-## A tour of the API
+## A quick tour
 
 ### In-memory
 
@@ -121,20 +122,21 @@ head(keys, 3)
 
 ### S3-compatible with credentials — Pawsey
 
-Credentials are picked up from the standard `AWS_ACCESS_KEY_ID` /
-`AWS_SECRET_ACCESS_KEY` environment variables. The `endpoint` argument
-points `object_store` at any S3-compatible service:
+For credentialed S3-compatible services (Pawsey, MinIO, Backblaze etc.),
+point the `endpoint` argument at the provider and supply credentials via
+the usual AWS environment variables:
 
 ``` r
+# credentials only needed for writes or private buckets
 Sys.setenv(
-  AWS_ACCESS_KEY_ID     = <key-id>,
-  AWS_SECRET_ACCESS_KEY =<secret>
+  AWS_ACCESS_KEY_ID     = "<your-key-id>",
+  AWS_SECRET_ACCESS_KEY = "<your-secret>"
 )
 
 s <- s3_store(
-  bucket    = "estinel",
-  region    = "",                                  # unused when endpoint is set
-  endpoint  = "https://projects.pawsey.org.au",
+  bucket     = "estinel",
+  region     = "",                                 # unused when endpoint is set
+  endpoint   = "https://projects.pawsey.org.au",
   allow_http = FALSE
 )
 
@@ -154,11 +156,14 @@ tiles, product types — you can fan out across sub-prefixes with
 `store_list_many()` and turn one long serial listing into many short
 parallel ones.
 
+Pawsey’s `estinel` bucket is public, so `s3_store_anonymous()` works
+against it too — no credentials needed:
+
 ``` r
-s <- s3_store(
-  bucket    = "estinel",
-  region    = "",
-  endpoint  = "https://projects.pawsey.org.au",
+s <- s3_store_anonymous(
+  bucket     = "estinel",
+  region     = "",
+  endpoint   = "https://projects.pawsey.org.au",
   allow_http = FALSE
 )
 
@@ -185,6 +190,52 @@ length(all_parallel)
 A 5× speedup over the serial listing, with the same 552,860 keys
 returned (`store_list_many()` does not preserve input order — sort the
 result if order matters).
+
+### Multi-tenant buckets — source.coop
+
+[`source.coop`](https://source.coop) is a multi-tenant S3 gateway: one
+large public bucket (`us-west-2.opendata.source.coop`) with each data
+provider getting a top-level prefix. From robstore’s perspective it’s
+just an anonymous AWS S3 bucket — the bucket name has dots in it, but
+that’s the only unusual thing:
+
+``` r
+s <- s3_store_anonymous(
+  bucket     = "us-west-2.opendata.source.coop",
+  region     = "us-west-2",
+  endpoint   = NULL,
+  allow_http = FALSE
+)
+s
+#> <S3Store[anon](us-west-2.opendata.source.coop @ us-west-2)>
+
+store_list_delimited(s, "ausantarctic/ghrsst-mur-v2/")
+#> $keys
+#> [1] "ausantarctic/ghrsst-mur-v2/README.md"
+#> [2] "ausantarctic/ghrsst-mur-v2/ghrsst-mur-v2.parquet"
+#>
+#> $common_prefixes
+#>  [1] "ausantarctic/ghrsst-mur-v2/2002"
+#>  [2] "ausantarctic/ghrsst-mur-v2/2003"
+#>  ...
+#> [25] "ausantarctic/ghrsst-mur-v2/2026"
+
+# fan-out list across years — same pattern as Pawsey
+year_prefixes <- sprintf("ausantarctic/ghrsst-mur-v2/%d/", 2002:2026)
+system.time({
+  all_keys <- store_list_many(s, year_prefixes, concurrency = 16)
+})
+#>    user  system elapsed
+#>   0.297   0.175   2.266
+length(all_keys)
+#> [1] 46070
+
+# filter to the TIFs
+tif_keys <- grepv("\\.tif$", all_keys)
+tail(tif_keys)
+#> [1] "ausantarctic/ghrsst-mur-v2/2026/04/15/20260415090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1_sst_anomaly.tif"
+#> ...
+```
 
 ## Concurrent byte-range reads
 
@@ -239,7 +290,7 @@ Rust drives the reactor.
 ### `store_head_bytes()` — convenience wrapper
 
 For the common pattern of reading the first N bytes of many files (COG
-headers, Parquet footers, Zarr .zarray files), `store_head_bytes()`
+headers, Parquet footers, Zarr `.zarray` files), `store_head_bytes()`
 wraps `store_get_ranges_many()` with fixed offset and length:
 
 ``` r
@@ -415,11 +466,18 @@ across every backend.
 
 ## Development notes
 
-Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3
-(concurrent fan-out) are working and tested against `sentinel-cogs`
-(AWS) and Pawsey. Planned:
+Local, in-memory, AWS S3, S3-compatible, GCS, and Azure backends are
+working and tested against:
 
-- generic HTTP backends
+- AWS — `sentinel-cogs` (anonymous)
+- Pawsey — `estinel` (credentialed and anonymous)
+- source.coop — `us-west-2.opendata.source.coop/ausantarctic/*`
+- GCS — `gcp-public-data-arco-era5`, `gcp-public-data-landsat`
+- Azure — Microsoft Planetary Computer via SAS tokens
+
+Planned:
+
+- generic HTTP backend
 - vendored Rust dependencies (`rextendr::vendor_pkgs()`) for CRAN /
   r-universe
 - integration with downstream packages (`rustycogs` for COG byte-range
@@ -428,9 +486,9 @@ Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3
 ## Related
 
 - [`object_store`](https://crates.io/crates/object_store) — the
-  underlying Rust crate (Development Seed project)
+  underlying Rust crate (Apache Arrow project)
 - [`obstore`](https://github.com/developmentseed/obstore) — Python
-  bindings to the same crate
+  bindings to the same crate (Development Seed)
 - [`extendr`](https://extendr.rs/) — the R↔Rust bridge used here
 
 ## License
