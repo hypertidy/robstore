@@ -71,7 +71,7 @@
 <!-- badges: start -->
 <!-- badges: end -->
 <p>R bindings to the Rust <a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> crate, providing a uniform interface to local filesystems and cloud object stores. Built with <a href="https://extendr.rs/" class="external-link">extendr</a>.</p>
-<p>The same small API (<code>store_put</code>, <code>store_get</code>, <code>store_get_range</code>, <code>store_list</code>, <code>store_exists</code>, <code>store_delete</code>, <code>store_copy</code>) works across every backend — switching between in-memory, local disk, AWS S3, and S3-compatible endpoints like Pawsey is just a change of constructor.</p>
+<p>The same small API (<code>store_put</code>, <code>store_get</code>, <code>store_get_range</code>, <code>store_list</code>, <code>store_exists</code>, <code>store_delete</code>, <code>store_copy</code>) works across every backend — switching between in-memory, local disk, AWS S3, S3-compatible endpoints like Pawsey or source.coop, Google Cloud Storage, and Azure Blob Storage is just a change of constructor.</p>
 <p>For cloud workloads, <code><a href="reference/store_get_many.html">store_get_many()</a></code> and <code><a href="reference/store_get_ranges_many.html">store_get_ranges_many()</a></code> fan requests out concurrently through a shared tokio runtime, delivering 10–30× speedups over sequential per-request calls.</p>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
@@ -109,7 +109,7 @@
 </tr>
 <tr class="even">
 <td><code>s3_store_anonymous(...)</code></td>
-<td>public S3 buckets (no signing, e.g. <code>sentinel-cogs</code>)</td>
+<td>public S3 buckets (e.g. <code>sentinel-cogs</code>, <code>source.coop</code>)</td>
 </tr>
 <tr class="odd">
 <td><code>gcs_store(bucket)</code></td>
@@ -133,10 +133,10 @@
 </tr>
 </tbody>
 </table>
-<p>More backends (generic HTTP) are planned.</p>
+<p>Generic HTTP is planned.</p>
 </div>
 <div class="section level2">
-<h2 id="a-tour-of-the-api">A tour of the API<a class="anchor" aria-label="anchor" href="#a-tour-of-the-api"></a>
+<h2 id="a-quick-tour">A quick tour<a class="anchor" aria-label="anchor" href="#a-quick-tour"></a>
 </h2>
 <div class="section level3">
 <h3 id="in-memory">In-memory<a class="anchor" aria-label="anchor" href="#in-memory"></a>
@@ -209,34 +209,37 @@
 <div class="section level3">
 <h3 id="s3-compatible-with-credentials--pawsey">S3-compatible with credentials — Pawsey<a class="anchor" aria-label="anchor" href="#s3-compatible-with-credentials--pawsey"></a>
 </h3>
-<p>Credentials are picked up from the standard <code>AWS_ACCESS_KEY_ID</code> / <code>AWS_SECRET_ACCESS_KEY</code> environment variables. The <code>endpoint</code> argument points <code>object_store</code> at any S3-compatible service:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="fu">Sys.setenv</span>(</span>
-<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>  <span class="at">AWS_ACCESS_KEY_ID     =</span> <span class="sc">&lt;</span>key<span class="sc">-</span>id<span class="sc">&gt;</span>,</span>
-<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>  <span class="at">AWS_SECRET_ACCESS_KEY =</span><span class="sc">&lt;</span>secret<span class="sc">&gt;</span></span>
-<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>)</span>
-<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a></span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a>s <span class="ot">&lt;-</span> <span class="fu">s3_store</span>(</span>
-<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a>  <span class="at">bucket    =</span> <span class="st">"estinel"</span>,</span>
-<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a>  <span class="at">region    =</span> <span class="st">""</span>,                                  <span class="co"># unused when endpoint is set</span></span>
-<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a>  <span class="at">endpoint  =</span> <span class="st">"https://projects.pawsey.org.au"</span>,</span>
-<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a>  <span class="at">allow_http =</span> <span class="cn">FALSE</span></span>
-<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a>)</span>
-<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a></span>
-<span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a><span class="fu">store_list</span>(s, <span class="at">prefix =</span> <span class="st">"sentinel-2-c1-l2a/2015"</span>)</span>
-<span id="cb5-14"><a href="#cb5-14" tabindex="-1"></a><span class="co">#&gt; [1] "sentinel-2-c1-l2a/2015/10/23/Hobart_2015-10-23.tif"</span></span>
-<span id="cb5-15"><a href="#cb5-15" tabindex="-1"></a><span class="co">#&gt; [2] "sentinel-2-c1-l2a/2015/11/12/Hobart_2015-11-12.tif"</span></span>
-<span id="cb5-16"><a href="#cb5-16" tabindex="-1"></a><span class="co">#&gt; [3] "sentinel-2-c1-l2a/2015/11/22/Hobart_2015-11-22.tif"</span></span>
-<span id="cb5-17"><a href="#cb5-17" tabindex="-1"></a><span class="co">#&gt; ...</span></span></code></pre></div>
+<p>For credentialed S3-compatible services (Pawsey, MinIO, Backblaze etc.), point the <code>endpoint</code> argument at the provider and supply credentials via the usual AWS environment variables:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="co"># credentials only needed for writes or private buckets</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Sys.setenv.html" class="external-link">Sys.setenv</a></span><span class="op">(</span></span>
+<span>  AWS_ACCESS_KEY_ID     <span class="op">=</span> <span class="st">"&lt;your-key-id&gt;"</span>,</span>
+<span>  AWS_SECRET_ACCESS_KEY <span class="op">=</span> <span class="st">"&lt;your-secret&gt;"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store.html">s3_store</a></span><span class="op">(</span></span>
+<span>  bucket     <span class="op">=</span> <span class="st">"estinel"</span>,</span>
+<span>  region     <span class="op">=</span> <span class="st">""</span>,                                 <span class="co"># unused when endpoint is set</span></span>
+<span>  endpoint   <span class="op">=</span> <span class="st">"https://projects.pawsey.org.au"</span>,</span>
+<span>  allow_http <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="st">"sentinel-2-c1-l2a/2015"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "sentinel-2-c1-l2a/2015/10/23/Hobart_2015-10-23.tif"</span></span>
+<span><span class="co">#&gt; [2] "sentinel-2-c1-l2a/2015/11/12/Hobart_2015-11-12.tif"</span></span>
+<span><span class="co">#&gt; [3] "sentinel-2-c1-l2a/2015/11/22/Hobart_2015-11-22.tif"</span></span>
+<span><span class="co">#&gt; ...</span></span></code></pre></div>
 </div>
 <div class="section level3">
 <h3 id="parallel-listing-across-prefixes">Parallel listing across prefixes<a class="anchor" aria-label="anchor" href="#parallel-listing-across-prefixes"></a>
 </h3>
 <p>S3’s <code>ListObjectsV2</code> is paginated (1000 keys per page) and each page depends on the previous one’s continuation token, so a single large listing is serial by protocol. For hierarchical layouts — years, MGRS tiles, product types — you can fan out across sub-prefixes with <code><a href="reference/store_list_many.html">store_list_many()</a></code> and turn one long serial listing into many short parallel ones.</p>
+<p>Pawsey’s <code>estinel</code> bucket is public, so <code><a href="reference/s3_store_anonymous.html">s3_store_anonymous()</a></code> works against it too — no credentials needed:</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store.html">s3_store</a></span><span class="op">(</span></span>
-<span>  bucket    <span class="op">=</span> <span class="st">"estinel"</span>,</span>
-<span>  region    <span class="op">=</span> <span class="st">""</span>,</span>
-<span>  endpoint  <span class="op">=</span> <span class="st">"https://projects.pawsey.org.au"</span>,</span>
+<code class="sourceCode R"><span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store_anonymous.html">s3_store_anonymous</a></span><span class="op">(</span></span>
+<span>  bucket     <span class="op">=</span> <span class="st">"estinel"</span>,</span>
+<span>  region     <span class="op">=</span> <span class="st">""</span>,</span>
+<span>  endpoint   <span class="op">=</span> <span class="st">"https://projects.pawsey.org.au"</span>,</span>
 <span>  allow_http <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span>
 <span></span>
@@ -260,12 +263,53 @@
 <span><span class="co">#&gt; [1] 552860</span></span></code></pre></div>
 <p>A 5× speedup over the serial listing, with the same 552,860 keys returned (<code><a href="reference/store_list_many.html">store_list_many()</a></code> does not preserve input order — sort the result if order matters).</p>
 </div>
+<div class="section level3">
+<h3 id="multi-tenant-buckets--sourcecoop">Multi-tenant buckets — source.coop<a class="anchor" aria-label="anchor" href="#multi-tenant-buckets--sourcecoop"></a>
+</h3>
+<p><a href="https://source.coop" class="external-link"><code>source.coop</code></a> is a multi-tenant S3 gateway: one large public bucket (<code>us-west-2.opendata.source.coop</code>) with each data provider getting a top-level prefix. From robstore’s perspective it’s just an anonymous AWS S3 bucket — the bucket name has dots in it, but that’s the only unusual thing:</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store_anonymous.html">s3_store_anonymous</a></span><span class="op">(</span></span>
+<span>  bucket     <span class="op">=</span> <span class="st">"us-west-2.opendata.source.coop"</span>,</span>
+<span>  region     <span class="op">=</span> <span class="st">"us-west-2"</span>,</span>
+<span>  endpoint   <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  allow_http <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">s</span></span>
+<span><span class="co">#&gt; &lt;S3Store[anon](us-west-2.opendata.source.coop @ us-west-2)&gt;</span></span>
+<span></span>
+<span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"ausantarctic/ghrsst-mur-v2/"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; $keys</span></span>
+<span><span class="co">#&gt; [1] "ausantarctic/ghrsst-mur-v2/README.md"</span></span>
+<span><span class="co">#&gt; [2] "ausantarctic/ghrsst-mur-v2/ghrsst-mur-v2.parquet"</span></span>
+<span><span class="co">#&gt;</span></span>
+<span><span class="co">#&gt; $common_prefixes</span></span>
+<span><span class="co">#&gt;  [1] "ausantarctic/ghrsst-mur-v2/2002"</span></span>
+<span><span class="co">#&gt;  [2] "ausantarctic/ghrsst-mur-v2/2003"</span></span>
+<span><span class="co">#&gt;  ...</span></span>
+<span><span class="co">#&gt; [25] "ausantarctic/ghrsst-mur-v2/2026"</span></span>
+<span></span>
+<span><span class="co"># fan-out list across years — same pattern as Pawsey</span></span>
+<span><span class="va">year_prefixes</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"ausantarctic/ghrsst-mur-v2/%d/"</span>, <span class="fl">2002</span><span class="op">:</span><span class="fl">2026</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/system.time.html" class="external-link">system.time</a></span><span class="op">(</span><span class="op">{</span></span>
+<span>  <span class="va">all_keys</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_list_many.html">store_list_many</a></span><span class="op">(</span><span class="va">s</span>, <span class="va">year_prefixes</span>, concurrency <span class="op">=</span> <span class="fl">16</span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    user  system elapsed</span></span>
+<span><span class="co">#&gt;   0.297   0.175   2.266</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">all_keys</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 46070</span></span>
+<span></span>
+<span><span class="co"># filter to the TIFs</span></span>
+<span><span class="va">tif_keys</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepv</a></span><span class="op">(</span><span class="st">"\\.tif$"</span>, <span class="va">all_keys</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">tail</a></span><span class="op">(</span><span class="va">tif_keys</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "ausantarctic/ghrsst-mur-v2/2026/04/15/20260415090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1_sst_anomaly.tif"</span></span>
+<span><span class="co">#&gt; ...</span></span></code></pre></div>
+</div>
 </div>
 <div class="section level2">
 <h2 id="concurrent-byte-range-reads">Concurrent byte-range reads<a class="anchor" aria-label="anchor" href="#concurrent-byte-range-reads"></a>
 </h2>
 <p><code><a href="reference/store_get_range.html">store_get_range()</a></code> is fast — reqwest over rustls with connection pooling — but calling it in an R loop is still one request at a time. <code><a href="reference/store_get_ranges_many.html">store_get_ranges_many()</a></code> issues up to <code>concurrency</code> range-GET requests simultaneously through a shared tokio runtime, returning a list of raw vectors in input order. This is the primitive for COG IFD walks, Zarr chunk scatter-reads, and Parquet row-group reads.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store_anonymous.html">s3_store_anonymous</a></span><span class="op">(</span><span class="st">"sentinel-cogs"</span>, <span class="st">"us-west-2"</span>, <span class="cn">NULL</span>, <span class="cn">FALSE</span><span class="op">)</span></span>
 <span><span class="va">keys</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="st">"sentinel-s2-l2a-cogs/1/C/CV/2024/1/"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">keys</span><span class="op">)</span></span>
@@ -306,8 +350,8 @@
 <h3 id="store_head_bytes--convenience-wrapper">
 <code>store_head_bytes()</code> — convenience wrapper<a class="anchor" aria-label="anchor" href="#store_head_bytes--convenience-wrapper"></a>
 </h3>
-<p>For the common pattern of reading the first N bytes of many files (COG headers, Parquet footers, Zarr .zarray files), <code><a href="reference/store_head_bytes.html">store_head_bytes()</a></code> wraps <code><a href="reference/store_get_ranges_many.html">store_get_ranges_many()</a></code> with fixed offset and length:</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<p>For the common pattern of reading the first N bytes of many files (COG headers, Parquet footers, Zarr <code>.zarray</code> files), <code><a href="reference/store_head_bytes.html">store_head_bytes()</a></code> wraps <code><a href="reference/store_get_ranges_many.html">store_get_ranges_many()</a></code> with fixed offset and length:</p>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">hdrs</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_head_bytes.html">store_head_bytes</a></span><span class="op">(</span><span class="va">s</span>, <span class="va">keys</span>, length <span class="op">=</span> <span class="fl">65536</span>, concurrency <span class="op">=</span> <span class="fl">32</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">hdrs</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 63</span></span>
@@ -318,7 +362,7 @@
 <h3 id="scaling">Scaling<a class="anchor" aria-label="anchor" href="#scaling"></a>
 </h3>
 <p>At the time of writing, <code><a href="reference/store_list.html">store_list()</a></code> can return half a million keys from a single prefix call (tested against <code>sentinel-s2-l2a-cogs/1/C/</code> which returned 543,889 keys). For concurrent byte-range reads at that scale, batch the keys in R rather than holding all the returned raw vectors in memory at once:</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">keys_huge</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="st">"sentinel-s2-l2a-cogs/1/C/"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">keys_huge</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 543889</span></span>
@@ -334,7 +378,7 @@
 <h3 id="public-gcs--landsat-and-era5">Public GCS — Landsat and ERA5<a class="anchor" aria-label="anchor" href="#public-gcs--landsat-and-era5"></a>
 </h3>
 <p><code><a href="reference/gcs_store_anonymous.html">gcs_store_anonymous()</a></code> opens a public Google Cloud Storage bucket with unsigned requests. Combined with <code><a href="reference/store_list_delimited.html">store_list_delimited()</a></code> it’s an efficient way to explore hierarchical archives like the Landsat mirror:</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/gcs_store_anonymous.html">gcs_store_anonymous</a></span><span class="op">(</span><span class="st">"gcp-public-data-landsat"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="cn">NULL</span><span class="op">)</span></span>
@@ -350,7 +394,7 @@
 <span><span class="fu"><a href="reference/store_list_delimited.html">store_list_delimited</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"LC08/01/090/"</span><span class="op">)</span><span class="op">$</span><span class="va">common_prefixes</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 67     # rows within path 090</span></span></code></pre></div>
 <p>For analysis-ready Zarr stores, the cloud-native pattern is to fetch the consolidated metadata and compute chunk keys rather than listing them. The ERA5 archive on GCS exposes <code>.zmetadata</code> as a single ~130 KB JSON file that describes the entire store:</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">era</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/gcs_store_anonymous.html">gcs_store_anonymous</a></span><span class="op">(</span><span class="st">"gcp-public-data-arco-era5"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">meta</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_get.html">store_get</a></span><span class="op">(</span><span class="va">era</span>, <span class="st">"ar/full_37-1h-0p25deg-chunk-1.zarr-v3/.zmetadata"</span><span class="op">)</span></span>
@@ -381,9 +425,9 @@
 <h3 id="azure-blob-storage--microsoft-planetary-computer">Azure Blob Storage — Microsoft Planetary Computer<a class="anchor" aria-label="anchor" href="#azure-blob-storage--microsoft-planetary-computer"></a>
 </h3>
 <p>Azure’s auth model differs from S3 and GCS: anonymous listing is generally not permitted even on “public” containers. Most public Azure datasets — the Microsoft Planetary Computer collections in particular — are accessed via short-lived SAS tokens from a free token-minting endpoint:</p>
-<div class="sourceCode" id="cb12"><pre class="sourceCode R"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a>https<span class="sc">:</span><span class="er">//</span>planetarycomputer.microsoft.com<span class="sc">/</span>api<span class="sc">/</span>sas<span class="sc">/</span>v1<span class="sc">/</span>token<span class="sc">/</span>{account}<span class="sc">/</span>{container}</span></code></pre></div>
+<div class="sourceCode" id="cb13"><pre class="sourceCode R"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" tabindex="-1"></a>https<span class="sc">:</span><span class="er">//</span>planetarycomputer.microsoft.com<span class="sc">/</span>api<span class="sc">/</span>sas<span class="sc">/</span>v1<span class="sc">/</span>token<span class="sc">/</span>{account}<span class="sc">/</span>{container}</span></code></pre></div>
 <p>Fetch a token, hand it to <code><a href="reference/azure_store_sas.html">azure_store_sas()</a></code>, and listing and reads work the same as any other backend:</p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://httr2.r-lib.org" class="external-link">httr2</a></span><span class="op">)</span></span>
 <span></span>
 <span><span class="co"># Free SAS token from Planetary Computer (~1 hour lifetime)</span></span>
@@ -414,7 +458,7 @@
 <span><span class="co">#&gt;  [1] "GRD/2024/1"  "GRD/2024/10" "GRD/2024/11" "GRD/2024/12"</span></span>
 <span><span class="co">#&gt;  [5] "GRD/2024/2"  "GRD/2024/3"  ...</span></span></code></pre></div>
 <p>For your own Azure storage accounts, set the usual environment variables and use <code><a href="reference/azure_store.html">azure_store()</a></code>:</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Sys.setenv.html" class="external-link">Sys.setenv</a></span><span class="op">(</span></span>
 <span>  AZURE_STORAGE_ACCOUNT_NAME <span class="op">=</span> <span class="st">"myaccount"</span>,</span>
 <span>  AZURE_STORAGE_ACCOUNT_KEY  <span class="op">=</span> <span class="st">"..."</span></span>
@@ -494,9 +538,19 @@
 <div class="section level2">
 <h2 id="development-notes">Development notes<a class="anchor" aria-label="anchor" href="#development-notes"></a>
 </h2>
-<p>Phase 1 (local/in-memory), Phase 2 (S3 + S3-compatible), and Phase 3 (concurrent fan-out) are working and tested against <code>sentinel-cogs</code> (AWS) and Pawsey. Planned:</p>
+<p>Local, in-memory, AWS S3, S3-compatible, GCS, and Azure backends are working and tested against:</p>
 <ul>
-<li>generic HTTP backends</li>
+<li>AWS — <code>sentinel-cogs</code> (anonymous)</li>
+<li>Pawsey — <code>estinel</code> (credentialed and anonymous)</li>
+<li>source.coop — <code>us-west-2.opendata.source.coop/ausantarctic/*</code>
+</li>
+<li>GCS — <code>gcp-public-data-arco-era5</code>, <code>gcp-public-data-landsat</code>
+</li>
+<li>Azure — Microsoft Planetary Computer via SAS tokens</li>
+</ul>
+<p>Planned:</p>
+<ul>
+<li>generic HTTP backend</li>
 <li>vendored Rust dependencies (<code>rextendr::vendor_pkgs()</code>) for CRAN / r-universe</li>
 <li>integration with downstream packages (<code>rustycogs</code> for COG byte-range scanning, <code>zaro</code> for Zarr stores)</li>
 </ul>
@@ -506,9 +560,9 @@
 </h2>
 <ul>
 <li>
-<a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> — the underlying Rust crate (Development Seed project)</li>
+<a href="https://crates.io/crates/object_store" class="external-link"><code>object_store</code></a> — the underlying Rust crate (Apache Arrow project)</li>
 <li>
-<a href="https://github.com/developmentseed/obstore" class="external-link"><code>obstore</code></a> — Python bindings to the same crate</li>
+<a href="https://github.com/developmentseed/obstore" class="external-link"><code>obstore</code></a> — Python bindings to the same crate (Development Seed)</li>
 <li>
 <a href="https://extendr.rs/" class="external-link"><code>extendr</code></a> — the R↔︎Rust bridge used here</li>
 </ul>
