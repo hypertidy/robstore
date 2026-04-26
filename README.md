@@ -76,7 +76,8 @@ store_get_range(s, "hello.txt", offset = 7, length = 5) |> rawToChar()
 store_copy(s, "hello.txt", "bye.txt")
 store_delete(s, "hello.txt")
 store_list(s, prefix = NULL)
-#> [1] "bye.txt"
+#      key size       last_modified etag
+#1 bye.txt   13 2026-04-26 19:21:15    1
 ```
 
 ### Local filesystem
@@ -112,9 +113,9 @@ s
 #> <S3Store[anon](sentinel-cogs @ us-west-2)>
 
 keys <- store_list(s, prefix = "sentinel-s2-l2a-cogs/1/C/CV/2024/1/")
-length(keys)
+nrow(keys)
 #> [1] 63
-head(keys, 3)
+head(keys$key, 3)
 #> [1] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/AOT.tif"
 #> [2] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/B01.tif"
 #> [3] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/B02.tif"
@@ -133,7 +134,7 @@ Sys.setenv(
   AWS_SECRET_ACCESS_KEY = "<your-secret>"
 )
 
-s <- s3_store(
+s <- s3_store_anonymous(
   bucket     = "estinel",
   region     = "",                                 # unused when endpoint is set
   endpoint   = "https://projects.pawsey.org.au",
@@ -141,10 +142,12 @@ s <- s3_store(
 )
 
 store_list(s, prefix = "sentinel-2-c1-l2a/2015")
-#> [1] "sentinel-2-c1-l2a/2015/10/23/Hobart_2015-10-23.tif"
-#> [2] "sentinel-2-c1-l2a/2015/11/12/Hobart_2015-11-12.tif"
-#> [3] "sentinel-2-c1-l2a/2015/11/22/Hobart_2015-11-22.tif"
-#> ...
+#key    size       last_modified                               etag
+#1    sentinel-2-c1-l2a/2015/10/23/Hobart_2015-10-23.tif 1721446 2025-11-18 02:06:20 "5ead10131897c6e441582c3e7ee86706"
+#2    sentinel-2-c1-l2a/2015/11/12/Hobart_2015-11-12.tif 1184485 2025-11-18 02:06:20 "3bd9597091ff283081d93f89a8eeb6e7"
+#3    sentinel-2-c1-l2a/2015/11/22/Hobart_2015-11-22.tif 1749887 2025-11-18 02:06:21 "d1b0a8fc089faf18a5c5ee8b7a74d5aa"
+#4    sentinel-2-c1-l2a/2015/12/19/Hobart_2015-12-19.tif   12070 2025-11-18 02:06:20 "f04501a5d853e62f05bda75aeab4cdc9"
+# ...
 ```
 
 ### Parallel listing across prefixes
@@ -183,7 +186,7 @@ system.time({
 })
 #>    user  system elapsed
 #>   2.821   0.651   8.469
-length(all_parallel)
+nrow(all_parallel)
 #> [1] 552860
 ```
 
@@ -227,11 +230,11 @@ system.time({
 })
 #>    user  system elapsed
 #>   0.297   0.175   2.266
-length(all_keys)
-#> [1] 46070
+dim(all_keys)
+#> [1] 46124
 
 # filter to the TIFs
-tif_keys <- grepv("\\.tif$", all_keys)
+tif_keys <- grepv("\\.tif$", all_keys$key)
 tail(tif_keys)
 #> [1] "ausantarctic/ghrsst-mur-v2/2026/04/15/20260415090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1_sst_anomaly.tif"
 #> ...
@@ -311,13 +314,13 @@ vectors in memory at once:
 
 ``` r
 keys_huge <- store_list(s, prefix = "sentinel-s2-l2a-cogs/1/C/")
-length(keys_huge)
+nrow(keys_huge)
 #> [1] 543889
 
 # process in chunks of 1000
-batches <- split(keys_huge, ceiling(seq_along(keys_huge) / 1000))
+batches <- split(keys_huge, ceiling(seq_along(keys_huge$key) / 1000))
 for (batch in batches) {
-  hdrs <- store_head_bytes(s, batch, length = 16384, concurrency = 64)
+  hdrs <- store_head_bytes(s, batch$key, length = 16384, concurrency = 64)
   # ... extract IFD offsets, write references, etc.
 }
 ```

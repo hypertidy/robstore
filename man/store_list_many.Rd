@@ -2,7 +2,7 @@
 % Please edit documentation in R/extendr-wrappers.R
 \name{store_list_many}
 \alias{store_list_many}
-\title{List object keys under many prefixes concurrently.}
+\title{List objects under many prefixes concurrently.}
 \usage{
 store_list_many(store, prefixes, concurrency)
 }
@@ -14,13 +14,12 @@ store_list_many(store, prefixes, concurrency)
 \item{concurrency}{Maximum number of concurrent list calls.}
 }
 \value{
-A character vector of all keys across all prefixes, in no
-guaranteed order.
+A data frame, in no guaranteed row order.
 }
 \description{
-Fires up to \code{concurrency} independent \code{list()} calls in parallel — one
-per prefix — and flattens the results into a single character vector.
-Useful for hierarchical layouts where you know the top-level directory
-names a priori (years, MGRS tiles, etc.) and want to parallelise
-across them instead of walking a single giant paginated listing.
+Fires up to \code{concurrency} independent \code{list()} calls in parallel and
+concatenates the results into a single data frame. Useful for
+hierarchical layouts where you know the top-level directory names
+a priori (years, MGRS tiles, etc.) and want to parallelise across
+them instead of walking a single giant paginated listing.
 }

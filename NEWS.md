@@ -1,3 +1,10 @@
+# robstore 0.15
+
+* `store_list()` and `store_list_many()` now return a data frame with
+  `key`, `size`, `last_modified` (POSIXct UTC), and `etag` columns,
+  instead of a character vector of keys. To preserve old behaviour,
+  call `store_list(...)$key`.
+  
 # robstore 0.1.0
 
 First release. R bindings to the Rust

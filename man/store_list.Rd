@@ -2,7 +2,7 @@
 % Please edit documentation in R/extendr-wrappers.R
 \name{store_list}
 \alias{store_list}
-\title{List object keys under an optional prefix.}
+\title{List objects under an optional prefix.}
 \usage{
 store_list(store, prefix)
 }
@@ -12,10 +12,15 @@ store_list(store, prefix)
 \item{prefix}{Optional prefix (string or \code{NULL}).}
 }
 \value{
-A character vector of object keys.
+A data frame with columns \code{key}, \code{size}, \code{last_modified}, \code{etag}.
 }
 \description{
-Pass a \code{prefix} when listing cloud buckets — most public buckets contain
-millions of objects and an unbounded list will take a long time and use
-a lot of memory.
+Returns a data frame with one row per object: \code{key} (path), \code{size}
+(bytes), \code{last_modified} (POSIXct, UTC), and \code{etag}. Pass a \code{prefix}
+when listing cloud buckets — most public buckets contain millions of
+objects and an unbounded list will take a long time and use a lot
+of memory.
+}
+\details{
+To get just the keys, use \code{df$key} on the result.
 }

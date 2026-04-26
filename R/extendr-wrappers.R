@@ -178,31 +178,34 @@ store_delete <- function(store, key) .Call(wrap__store_delete, store, key)
 #' @export
 store_exists <- function(store, key) .Call(wrap__store_exists, store, key)
 
-#' List object keys under an optional prefix.
+#' List objects under an optional prefix.
 #'
-#' Pass a `prefix` when listing cloud buckets — most public buckets contain
-#' millions of objects and an unbounded list will take a long time and use
-#' a lot of memory.
+#' Returns a data frame with one row per object: `key` (path), `size`
+#' (bytes), `last_modified` (POSIXct, UTC), and `etag`. Pass a `prefix`
+#' when listing cloud buckets — most public buckets contain millions of
+#' objects and an unbounded list will take a long time and use a lot
+#' of memory.
+#'
+#' To get just the keys, use `df$key` on the result.
 #'
 #' @param store A `Store` object.
 #' @param prefix Optional prefix (string or `NULL`).
-#' @return A character vector of object keys.
+#' @return A data frame with columns `key`, `size`, `last_modified`, `etag`.
 #' @export
 store_list <- function(store, prefix) .Call(wrap__store_list, store, prefix)
 
-#' List object keys under many prefixes concurrently.
+#' List objects under many prefixes concurrently.
 #'
-#' Fires up to `concurrency` independent `list()` calls in parallel — one
-#' per prefix — and flattens the results into a single character vector.
-#' Useful for hierarchical layouts where you know the top-level directory
-#' names a priori (years, MGRS tiles, etc.) and want to parallelise
-#' across them instead of walking a single giant paginated listing.
+#' Fires up to `concurrency` independent `list()` calls in parallel and
+#' concatenates the results into a single data frame. Useful for
+#' hierarchical layouts where you know the top-level directory names
+#' a priori (years, MGRS tiles, etc.) and want to parallelise across
+#' them instead of walking a single giant paginated listing.
 #'
 #' @param store A `Store` object.
 #' @param prefixes Character vector of prefixes.
 #' @param concurrency Maximum number of concurrent list calls.
-#' @return A character vector of all keys across all prefixes, in no
-#'   guaranteed order.
+#' @return A data frame, in no guaranteed row order.
 #' @export
 store_list_many <- function(store, prefixes, concurrency) .Call(wrap__store_list_many, store, prefixes, concurrency)
 

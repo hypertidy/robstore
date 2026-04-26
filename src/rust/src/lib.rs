@@ -399,33 +399,127 @@ fn store_exists(store: &Store, key: &str) -> Result<bool> {
     }
 }
 
-/// List object keys under an optional prefix.
+// Helper: convert a Vec<ObjectMeta> into a 4-column R data.frame
+// (key, size, last_modified, etag). Centralised so store_list and
+// store_list_many produce identical output shapes.
+fn metas_to_dataframe(metas: Vec<object_store::ObjectMeta>) -> Result<List> {
+    let n = metas.len();
+    let mut keys: Vec<String> = Vec::with_capacity(n);
+    let mut sizes: Vec<f64> = Vec::with_capacity(n);
+    let mut times: Vec<f64> = Vec::with_capacity(n);
+    let mut etags: Vec<String> = Vec::with_capacity(n);
+
+    for m in metas {
+        keys.push(m.location.to_string());
+        sizes.push(m.size as f64);
+        times.push(
+            m.last_modified.timestamp() as f64
+                + (m.last_modified.timestamp_subsec_micros() as f64) * 1e-6,
+        );
+        etags.push(m.e_tag.unwrap_or_default());
+    }
+
+    let keys_robj: Robj = keys.into();
+    let sizes_robj: Robj = sizes.into();
+    let mut times_robj: Robj = times.into();
+    times_robj.set_class(&["POSIXct", "POSIXt"])?;
+    times_robj.set_attrib("tzone", "UTC")?;
+    let etags_robj: Robj = etags.into();
+
+    let out = List::from_names_and_values(
+        &["key", "size", "last_modified", "etag"],
+        &[keys_robj, sizes_robj, times_robj, etags_robj],
+    )?;
+    let mut out_robj: Robj = out.into();
+    out_robj.set_class(&["data.frame"])?;
+    let row_names: Vec<i32> = (1..=(n as i32)).collect();
+    out_robj.set_attrib("row.names", row_names)?;
+    out_robj.try_into()
+}
+
+/// List objects under an optional prefix.
 ///
-/// Pass a `prefix` when listing cloud buckets — most public buckets contain
-/// millions of objects and an unbounded list will take a long time and use
-/// a lot of memory.
+/// Returns a data frame with one row per object: `key` (path), `size`
+/// (bytes), `last_modified` (POSIXct, UTC), and `etag`. Pass a `prefix`
+/// when listing cloud buckets — most public buckets contain millions of
+/// objects and an unbounded list will take a long time and use a lot
+/// of memory.
+///
+/// To get just the keys, use `df$key` on the result.
 ///
 /// @param store A `Store` object.
 /// @param prefix Optional prefix (string or `NULL`).
-/// @return A character vector of object keys.
+/// @return A data frame with columns `key`, `size`, `last_modified`, `etag`.
 /// @export
 #[extendr]
-fn store_list(store: &Store, prefix: Nullable<&str>) -> Result<Vec<String>> {
+fn store_list(store: &Store, prefix: Nullable<&str>) -> Result<List> {
     let prefix_path = match prefix {
         Nullable::NotNull(p) => Some(to_path(p)?),
         Nullable::Null => None,
     };
-    let keys: Vec<String> = RT
+    let metas: Vec<object_store::ObjectMeta> = RT
         .block_on(async {
             store
                 .inner
                 .list(prefix_path.as_ref())
-                .map_ok(|meta| meta.location.to_string())
-                .try_collect::<Vec<String>>()
+                .try_collect::<Vec<_>>()
                 .await
         })
         .map_err(os_err)?;
-    Ok(keys)
+    metas_to_dataframe(metas)
+}
+
+/// List objects under many prefixes concurrently.
+///
+/// Fires up to `concurrency` independent `list()` calls in parallel and
+/// concatenates the results into a single data frame. Useful for
+/// hierarchical layouts where you know the top-level directory names
+/// a priori (years, MGRS tiles, etc.) and want to parallelise across
+/// them instead of walking a single giant paginated listing.
+///
+/// @param store A `Store` object.
+/// @param prefixes Character vector of prefixes.
+/// @param concurrency Maximum number of concurrent list calls.
+/// @return A data frame, in no guaranteed row order.
+/// @export
+#[extendr]
+fn store_list_many(
+    store: &Store,
+    prefixes: Vec<String>,
+    concurrency: i32,
+) -> Result<List> {
+    if concurrency < 1 {
+        return Err(Error::Other("concurrency must be >= 1".into()));
+    }
+    let conc = concurrency as usize;
+    let inner = store.inner.clone();
+
+    let paths: Vec<ObjectPath> = prefixes
+        .iter()
+        .map(|p| to_path(p))
+        .collect::<Result<Vec<_>>>()?;
+
+    let all_metas: Vec<object_store::ObjectMeta> = RT
+        .block_on(async {
+            stream::iter(paths)
+                .map(|path| {
+                    let inner = inner.clone();
+                    async move {
+                        let metas: Vec<object_store::ObjectMeta> = inner
+                            .list(Some(&path))
+                            .try_collect::<Vec<_>>()
+                            .await?;
+                        Ok::<Vec<object_store::ObjectMeta>, object_store::Error>(metas)
+                    }
+                })
+                .buffer_unordered(conc)
+                .try_collect::<Vec<Vec<object_store::ObjectMeta>>>()
+                .await
+                .map(|vs| vs.into_iter().flatten().collect())
+        })
+        .map_err(os_err)?;
+
+    metas_to_dataframe(all_metas)
 }
 
 /// Copy an object from `from` to `to` within the same store.
@@ -585,62 +679,6 @@ fn store_get_ranges_many(
         .map(|b| Raw::from_bytes(b).into_robj())
         .collect();
     Ok(List::from_values(robjs))
-}
-
-/// List object keys under many prefixes concurrently.
-///
-/// Fires up to `concurrency` independent `list()` calls in parallel — one
-/// per prefix — and flattens the results into a single character vector.
-/// Useful for hierarchical layouts where you know the top-level directory
-/// names a priori (years, MGRS tiles, etc.) and want to parallelise
-/// across them instead of walking a single giant paginated listing.
-///
-/// @param store A `Store` object.
-/// @param prefixes Character vector of prefixes.
-/// @param concurrency Maximum number of concurrent list calls.
-/// @return A character vector of all keys across all prefixes, in no
-///   guaranteed order.
-/// @export
-#[extendr]
-fn store_list_many(
-    store: &Store,
-    prefixes: Vec<String>,
-    concurrency: i32,
-) -> Result<Vec<String>> {
-    if concurrency < 1 {
-        return Err(Error::Other("concurrency must be >= 1".into()));
-    }
-    let conc = concurrency as usize;
-    let inner = store.inner.clone();
-
-    // Validate all prefixes up front
-    let paths: Vec<ObjectPath> = prefixes
-        .iter()
-        .map(|p| to_path(p))
-        .collect::<Result<Vec<_>>>()?;
-
-    let all_keys: Vec<String> = RT
-        .block_on(async {
-            stream::iter(paths)
-                .map(|path| {
-                    let inner = inner.clone();
-                    async move {
-                        let keys: Vec<String> = inner
-                            .list(Some(&path))
-                            .map_ok(|meta| meta.location.to_string())
-                            .try_collect::<Vec<String>>()
-                            .await?;
-                        Ok::<Vec<String>, object_store::Error>(keys)
-                    }
-                })
-                .buffer_unordered(conc)
-                .try_collect::<Vec<Vec<String>>>()
-                .await
-                .map(|vs| vs.into_iter().flatten().collect())
-        })
-        .map_err(os_err)?;
-
-    Ok(all_keys)
 }
 
 /// List one level of the hierarchy under a prefix (delimited listing).
