@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="index.html">robstore</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.5</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.1.5.9001</span>
       </span>
     </div>
 
@@ -165,7 +165,8 @@
 <span><span class="fu"><a href="reference/store_copy.html">store_copy</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"hello.txt"</span>, <span class="st">"bye.txt"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="reference/store_delete.html">store_delete</a></span><span class="op">(</span><span class="va">s</span>, <span class="st">"hello.txt"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "bye.txt"</span></span></code></pre></div>
+<span><span class="co">#      key size       last_modified etag</span></span>
+<span><span class="co">#1 bye.txt   13 2026-04-26 19:21:15    1</span></span></code></pre></div>
 </div>
 <div class="section level3">
 <h3 id="local-filesystem">Local filesystem<a class="anchor" aria-label="anchor" href="#local-filesystem"></a>
@@ -199,9 +200,9 @@
 <span><span class="co">#&gt; &lt;S3Store[anon](sentinel-cogs @ us-west-2)&gt;</span></span>
 <span></span>
 <span><span class="va">keys</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="st">"sentinel-s2-l2a-cogs/1/C/CV/2024/1/"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">keys</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">keys</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 63</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">keys</span>, <span class="fl">3</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">keys</span><span class="op">$</span><span class="va">key</span>, <span class="fl">3</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/AOT.tif"</span></span>
 <span><span class="co">#&gt; [2] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/B01.tif"</span></span>
 <span><span class="co">#&gt; [3] "sentinel-s2-l2a-cogs/1/C/CV/2024/1/S2B_1CCV_20240106_0_L2A/B02.tif"</span></span></code></pre></div>
@@ -217,7 +218,7 @@
 <span>  AWS_SECRET_ACCESS_KEY <span class="op">=</span> <span class="st">"&lt;your-secret&gt;"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store.html">s3_store</a></span><span class="op">(</span></span>
+<span><span class="va">s</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/s3_store_anonymous.html">s3_store_anonymous</a></span><span class="op">(</span></span>
 <span>  bucket     <span class="op">=</span> <span class="st">"estinel"</span>,</span>
 <span>  region     <span class="op">=</span> <span class="st">""</span>,                                 <span class="co"># unused when endpoint is set</span></span>
 <span>  endpoint   <span class="op">=</span> <span class="st">"https://projects.pawsey.org.au"</span>,</span>
@@ -225,10 +226,12 @@
 <span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="st">"sentinel-2-c1-l2a/2015"</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "sentinel-2-c1-l2a/2015/10/23/Hobart_2015-10-23.tif"</span></span>
-<span><span class="co">#&gt; [2] "sentinel-2-c1-l2a/2015/11/12/Hobart_2015-11-12.tif"</span></span>
-<span><span class="co">#&gt; [3] "sentinel-2-c1-l2a/2015/11/22/Hobart_2015-11-22.tif"</span></span>
-<span><span class="co">#&gt; ...</span></span></code></pre></div>
+<span><span class="co">#key    size       last_modified                               etag</span></span>
+<span><span class="co">#1    sentinel-2-c1-l2a/2015/10/23/Hobart_2015-10-23.tif 1721446 2025-11-18 02:06:20 "5ead10131897c6e441582c3e7ee86706"</span></span>
+<span><span class="co">#2    sentinel-2-c1-l2a/2015/11/12/Hobart_2015-11-12.tif 1184485 2025-11-18 02:06:20 "3bd9597091ff283081d93f89a8eeb6e7"</span></span>
+<span><span class="co">#3    sentinel-2-c1-l2a/2015/11/22/Hobart_2015-11-22.tif 1749887 2025-11-18 02:06:21 "d1b0a8fc089faf18a5c5ee8b7a74d5aa"</span></span>
+<span><span class="co">#4    sentinel-2-c1-l2a/2015/12/19/Hobart_2015-12-19.tif   12070 2025-11-18 02:06:20 "f04501a5d853e62f05bda75aeab4cdc9"</span></span>
+<span><span class="co"># ...</span></span></code></pre></div>
 </div>
 <div class="section level3">
 <h3 id="parallel-listing-across-prefixes">Parallel listing across prefixes<a class="anchor" aria-label="anchor" href="#parallel-listing-across-prefixes"></a>
@@ -259,7 +262,7 @@
 <span><span class="op">}</span><span class="op">)</span></span>
 <span><span class="co">#&gt;    user  system elapsed</span></span>
 <span><span class="co">#&gt;   2.821   0.651   8.469</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">all_parallel</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">all_parallel</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 552860</span></span></code></pre></div>
 <p>A 5× speedup over the serial listing, with the same 552,860 keys returned (<code><a href="reference/store_list_many.html">store_list_many()</a></code> does not preserve input order — sort the result if order matters).</p>
 </div>
@@ -295,11 +298,11 @@
 <span><span class="op">}</span><span class="op">)</span></span>
 <span><span class="co">#&gt;    user  system elapsed</span></span>
 <span><span class="co">#&gt;   0.297   0.175   2.266</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">all_keys</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] 46070</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">all_keys</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 46124</span></span>
 <span></span>
 <span><span class="co"># filter to the TIFs</span></span>
-<span><span class="va">tif_keys</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepv</a></span><span class="op">(</span><span class="st">"\\.tif$"</span>, <span class="va">all_keys</span><span class="op">)</span></span>
+<span><span class="va">tif_keys</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">grepv</a></span><span class="op">(</span><span class="st">"\\.tif$"</span>, <span class="va">all_keys</span><span class="op">$</span><span class="va">key</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">tail</a></span><span class="op">(</span><span class="va">tif_keys</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "ausantarctic/ghrsst-mur-v2/2026/04/15/20260415090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02.0-fv04.1_sst_anomaly.tif"</span></span>
 <span><span class="co">#&gt; ...</span></span></code></pre></div>
@@ -364,13 +367,13 @@
 <p>At the time of writing, <code><a href="reference/store_list.html">store_list()</a></code> can return half a million keys from a single prefix call (tested against <code>sentinel-s2-l2a-cogs/1/C/</code> which returned 543,889 keys). For concurrent byte-range reads at that scale, batch the keys in R rather than holding all the returned raw vectors in memory at once:</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">keys_huge</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_list.html">store_list</a></span><span class="op">(</span><span class="va">s</span>, prefix <span class="op">=</span> <span class="st">"sentinel-s2-l2a-cogs/1/C/"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">keys_huge</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/nrow.html" class="external-link">nrow</a></span><span class="op">(</span><span class="va">keys_huge</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] 543889</span></span>
 <span></span>
 <span><span class="co"># process in chunks of 1000</span></span>
-<span><span class="va">batches</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/split.html" class="external-link">split</a></span><span class="op">(</span><span class="va">keys_huge</span>, <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">ceiling</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">keys_huge</span><span class="op">)</span> <span class="op">/</span> <span class="fl">1000</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">batches</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/split.html" class="external-link">split</a></span><span class="op">(</span><span class="va">keys_huge</span>, <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">ceiling</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">keys_huge</span><span class="op">$</span><span class="va">key</span><span class="op">)</span> <span class="op">/</span> <span class="fl">1000</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="kw">for</span> <span class="op">(</span><span class="va">batch</span> <span class="kw">in</span> <span class="va">batches</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">hdrs</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_head_bytes.html">store_head_bytes</a></span><span class="op">(</span><span class="va">s</span>, <span class="va">batch</span>, length <span class="op">=</span> <span class="fl">16384</span>, concurrency <span class="op">=</span> <span class="fl">64</span><span class="op">)</span></span>
+<span>  <span class="va">hdrs</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/store_head_bytes.html">store_head_bytes</a></span><span class="op">(</span><span class="va">s</span>, <span class="va">batch</span><span class="op">$</span><span class="va">key</span>, length <span class="op">=</span> <span class="fl">16384</span>, concurrency <span class="op">=</span> <span class="fl">64</span><span class="op">)</span></span>
 <span>  <span class="co"># ... extract IFD offsets, write references, etc.</span></span>
 <span><span class="op">}</span></span></code></pre></div>
 </div>
